@@ -14,9 +14,11 @@ C:\acoplamento_theta-gamma\
 ├── MTESC04_NOCI\
 │   ├── MTESC04 -- 1 - infusao - 08-07-2024\
 │   │   ├── Basal antes da infusao\  ← 3 .ns2 (gravação 20240708-123605)
-│   │   └── SCRIPT\                  ← SAÍDAS: resultados*.csv, comodulogramas*/,
+│   │   └── RESULTADOS\              ← SAÍDAS: resultados*.csv, comodulogramas*/,
 │   │                                    figuras/, auditoria/, vencedores.csv,
 │   │                                    registro_resultados.md, .claude/
+│   │                                    (as pastas 1–2 chamavam-se "SCRIPT",
+│   │                                     renomeadas para RESULTADOS em 24/08/2026)
 │   ├── MTESC04 -- 2 - infusao - 09-07-2024\   (idem; gravação 20240709-141215)
 │   └── MTESC04 -- 3..6 - infusao - 11/15/22/23-07-2024\   (pendentes)
 ├── MTESC04_LAC\
@@ -36,7 +38,7 @@ caminhos), ela entra por CLI/CSV — nunca editar listas no código.
 - **Validação = 5 etapas**: FDR de janela; não-60 Hz (notch sempre);
   respiração; FDR do mapa "concentrado em ΘΓ"; robustez (n_bins/larguras/
   MVL) + coerência comportamental no vídeo.
-- **`vencedores.csv`** na pasta SCRIPT de cada sessão (formato no README,
+- **`vencedores.csv`** na pasta RESULTADOS de cada sessão (formato no README,
   passo 7): alimenta `robustez_parametros.py` e `figura_apresentacao.py`.
   Nome de PNG gerado = `<rotulo>_<canal>.png`.
 - **`registro_resultados.md`** por sessão = registro formal consolidável

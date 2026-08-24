@@ -1,2 +1,2 @@
-__pycache__/
-*.pyc
+# Configuração local do Claude Code (contém token de API — nunca commitar)
+.claude/settings.local.json

@@ -1,23 +1,27 @@
-# CLAUDE.md — SCRIPT central do estudo MTESC04 (NOCI, basal)
+# CLAUDE.md — SCRIPT central do projeto (acoplamento theta-gamma)
 
 ## O que é esta pasta
 
-**Código único do estudo**, compartilhado por todas as sessões. Nada de
-específico de sessão mora aqui — nem dados, nem saídas, nem listas de
+**Código único do grupo de estudos** `C:\acoplamento_theta-gamma\`,
+compartilhado por TODOS os estudos e sessões (MTESC04/MTESC05 × NOCI/LAC).
+Nada de específico de sessão mora aqui — nem dados, nem saídas, nem listas de
 vencedores. Rodar os comandos DE DENTRO desta pasta, apontando para a sessão
 por caminho relativo (ver `README_pipeline.md`).
 
 ```
-C:\acoplamento_theta-gamma\MTESC04_NOCI\
+C:\acoplamento_theta-gamma\
 ├── SCRIPT\                          ← ESTA pasta (código + README + CLAUDE.md)
-├── MTESC04 -- 1 - infusao - 08-07-2024\
-│   ├── Basal antes da infusao\      ← 3 .ns2 (gravação 20240708-123605)
-│   └── SCRIPT\                      ← SAÍDAS: resultados*.csv, comodulogramas*/,
-│                                       figuras/, auditoria/, vencedores.csv,
-│                                       registro_resultados.md, .claude/
-├── MTESC04 -- 2 - infusao - 09-07-2024\   (idem; gravação 20240709-141215)
-├── MTESC04 -- 3..6 - infusao - 11/15/22/23-07-2024\   (pendentes)
-└── (MTESC05 — futuro, mesmo desenho)
+├── MTESC04_NOCI\
+│   ├── MTESC04 -- 1 - infusao - 08-07-2024\
+│   │   ├── Basal antes da infusao\  ← 3 .ns2 (gravação 20240708-123605)
+│   │   └── SCRIPT\                  ← SAÍDAS: resultados*.csv, comodulogramas*/,
+│   │                                    figuras/, auditoria/, vencedores.csv,
+│   │                                    registro_resultados.md, .claude/
+│   ├── MTESC04 -- 2 - infusao - 09-07-2024\   (idem; gravação 20240709-141215)
+│   └── MTESC04 -- 3..6 - infusao - 11/15/22/23-07-2024\   (pendentes)
+├── MTESC04_LAC\
+├── MTESC05_NOCI\
+└── MTESC05_LAC\
 ```
 
 Regra de ouro: **sessões têm dados e saídas; o SCRIPT central tem código.**

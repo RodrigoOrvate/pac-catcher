@@ -1,33 +1,38 @@
-# README — Pipeline PAC theta-gamma (MTESC04)
+# README — Pipeline PAC theta-gamma (MTESC04 / MTESC05)
 
 Como encontrar e validar acoplamento fase-amplitude theta-gamma no registro
 **Basal** de uma sessão (3 arquivos .ns2 consecutivos, 32 canais, 1000 Hz).
 
-Validado nas sessões 08/07 e 09/07/2024 (ver o `registro_resultados.md` de
-cada sessão e o `CLAUDE.md` desta pasta). Este guia descreve como rodar uma
-**nova sessão**.
+Validado nas sessões 08/07 e 09/07/2024 do MTESC04 NOCI (ver o
+`registro_resultados.md` de cada sessão e o `CLAUDE.md` desta pasta). Este
+guia descreve como rodar uma **nova sessão**.
 
 ## Arquitetura (24/08/2026): um SCRIPT central, dados por sessão
 
-O código mora SOMENTE aqui (`MTESC04_NOCI\SCRIPT\`) e é compartilhado por
-todas as sessões. Cada pasta de sessão guarda apenas dados, saídas e os
-arquivos de estado da sessão:
+O código mora SOMENTE aqui (`C:\acoplamento_theta-gamma\SCRIPT\`) — na raiz
+do grupo, acima das pastas de estudo — e é compartilhado por todas as
+sessões de todos os estudos (MTESC04/05 × NOCI/LAC). Cada pasta de sessão
+guarda apenas dados, saídas e os arquivos de estado:
 
 ```
-MTESC04_NOCI/
+acoplamento_theta-gamma/
 ├── SCRIPT/                        ← ESTA pasta: todo o código (única cópia)
-├── MTESC04 -- 1 - infusao - 08-07-2024/
-│   ├── Basal antes da infusao/    ← os 3 .ns2
-│   ├── video .MPG                 ← etapa comportamental (manual)
-│   └── SCRIPT/                    ← SAÍDAS da sessão: resultados*.csv,
-│      (sem .py!)                     comodulogramas*/, figuras/, logs,
-│                                     vencedores.csv, registro_resultados.md, .claude/
-├── MTESC04 -- 2 - infusao - 09-07-2024/   (idem)
-└── ...
+├── MTESC04_NOCI/
+│   ├── MTESC04 -- 1 - infusao - 08-07-2024/
+│   │   ├── Basal antes da infusao/    ← os 3 .ns2
+│   │   ├── video .MPG                 ← etapa comportamental (manual)
+│   │   └── SCRIPT/                    ← SAÍDAS da sessão: resultados*.csv,
+│   │      (sem .py!)                     comodulogramas*/, figuras/, logs,
+│   │                                      vencedores.csv, registro_resultados.md, .claude/
+│   ├── MTESC04 -- 2 - infusao - 09-07-2024/   (idem)
+│   └── ... (sessões 3–6)
+├── MTESC04_LAC/
+├── MTESC05_NOCI/
+└── MTESC05_LAC/
 ```
 
-Todos os comandos abaixo são dados DENTRO de `MTESC04_NOCI\SCRIPT\`, apontando
-para a sessão por caminho relativo (`../MTESC04 -- N .../...`).
+Todos os comandos abaixo são dados DENTRO desta pasta `SCRIPT\`, apontando
+para a sessão por caminho relativo à raiz do grupo.
 
 ## Pré-requisitos
 
@@ -35,7 +40,7 @@ para a sessão por caminho relativo (`../MTESC04 -- N .../...`).
 pip install -r requirements.txt   # numpy scipy matplotlib pandas neo
 ```
 
-- Pasta com os .ns2 da sessão (ex.: `../Basal outro animal`).
+- Pasta com os .ns2 da sessão.
 - Vídeo da sessão (para a etapa comportamental — manual).
 
 ## Começando em uma nova sessão (do zero)
@@ -45,7 +50,7 @@ pasta da sessão tenha os dados e crie as saídas dentro do próprio `SCRIPT/`
 da sessão:
 
 ```
-MTESC04 -- N - infusao - DD-07-2024/
+<ESTUDO>/<SESSAO>/              ex.: MTESC04_NOCI/MTESC04 -- 3 - infusao - 11-07-2024
 ├── Basal <nome>/          ← os 3 .ns2 da nova sessão
 ├── video da sessao.MPG    ← para a etapa comportamental (manual)
 └── SCRIPT/                ← criar vazia; recebe resultados*.csv,
@@ -53,9 +58,9 @@ MTESC04 -- N - infusao - DD-07-2024/
                               registro_resultados.md
 ```
 
-Nos comandos do fluxo, troque `<SESSAO>` pelo nome da pasta da sessão
-(ex.: `MTESC04 -- 3 - infusao - 11-07-2024`) e `<BASAL>` pela pasta de dados
-dentro dela.
+Nos comandos do fluxo, troque `<ESTUDO>/<SESSAO>` pelo caminho da sessão a
+partir da raiz do grupo (ex.: `MTESC04_NOCI/MTESC04 -- 3 - infusao -
+11-07-2024`) e `<BASAL>` pela pasta de dados dentro dela.
 
 ## Fluxo completo (7 passos)
 

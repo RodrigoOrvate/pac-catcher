@@ -1,2 +1,5 @@
 # Configuração local do Claude Code (contém token de API — nunca commitar)
 .claude/settings.local.json
+
+# Cache de bytecode Python
+__pycache__/

@@ -32,9 +32,18 @@ coincidentes produzem z alto. Esta auditoria discrimina com:
      cortical local tem gradiente; cabo batendo/EMG difuso nao respeita
      gradiente entre canais vizinhos.
 
-Uso:
+Uso (casos da sessão 08/07 como default — nada precisa ser passado):
+
     python audita_transientes.py
     python audita_transientes.py --pasta_ns2 "../Basal antes da infusao" --saida_dir auditoria
+
+Nova sessão, por CLI (casos específicos NUNCA entram no código). Formato de
+--casos: "rotulo,arquivo,canal,ini,fim,fp,fa" separados por ';'. Ex.:
+
+    python audita_transientes.py \
+        --pasta_ns2 "<SESSAO>/<BASAL>" --saida_dir "<SESSAO>/RESULTADOS/auditoria" \
+        --casos "ev02_disputado,20240711-121046-001.ns2,chan26,65,75,5,70;ev15_limpo,20240711-121046-003.ns2,chan24,275,285,6,40" \
+        --vizinhos ""   # pula o bloco de vizinhos (ele é específico de cada sessão)
 
 Saídas: <saida_dir>/auditoria_transientes.csv (z por condição),
         <saida_dir>/contexto_amplitude.csv (estatísticas de contexto)
@@ -259,7 +268,30 @@ def main():
                     help="Pasta com os .ns2 originais")
     ap.add_argument("--saida_dir", default="auditoria",
                     help="Diretório de saída (CSVs e PNGs)")
+    ap.add_argument("--casos", default=None,
+                    help='Casos no formato "rotulo,arquivo,canal,ini,fim,fp,fa" '
+                         "separados por ';'. Omitir = casos default da sessão 08/07.")
+    ap.add_argument("--vizinhos", default="chan24:6.8,chan26:5.8,chan28:5.9",
+                    help='"canal:z_publicado,...". Passar "" para pular o bloco.')
+    ap.add_argument("--vizinhos_ini", type=float, default=20.0)
+    ap.add_argument("--vizinhos_fim", type=float, default=30.0)
+    ap.add_argument("--vizinhos_fp", type=int, default=5)
+    ap.add_argument("--vizinhos_fa", type=int, default=35)
     args = ap.parse_args()
+
+    if args.casos:
+        casos = []
+        for item in args.casos.split(";"):
+            rot, arq, can, ini, fim, fp, fa = item.split(",")
+            casos.append(dict(rotulo=rot, arquivo=arq, canal=can,
+                              ini=float(ini), fim=float(fim), fp=int(fp), fa=int(fa)))
+    else:
+        casos = CASOS
+    vizinhos = []
+    if args.vizinhos.strip():
+        for item in args.vizinhos.split(","):
+            can, zpub = item.split(":")
+            vizinhos.append((can.strip(), float(zpub)))
 
     try:
         sys.stdout.reconfigure(encoding="utf-8")
@@ -278,7 +310,7 @@ def main():
     linhas_z = []
     linhas_ctx = []
 
-    for caso in CASOS:
+    for caso in casos:
         dados, fs, mapa = carrega(caso["arquivo"])
         idx = mapa[caso["canal"]]
         lfp = fatia_janela(dados[:, idx], fs, caso["ini"], caso["fim"]).astype(float)
@@ -353,21 +385,24 @@ def main():
         )
 
     # 5) vizinhos do caso disputado (mesma janela/par de pico)
-    print("\n=== vizinhos do caso disputado (003 @ 20-30s, pico 5x35 Hz) ===")
-    dados, fs, mapa = carrega(CASOS[0]["arquivo"])
-    for canal, z_pub in VIZINHOS:
-        idx = mapa[canal]
-        lfp = fatia_janela(dados[:, idx], fs, 20.0, 30.0).astype(float)
-        lfp_n = aplica_notch(lfp, fs, linha_hz=NOTCH_HZ)
-        z0, mi0, _, _ = mi_z_par(lfp_n, fs, 5, 35)
-        limpo, ruins, _, frac = remove_transientes(lfp_n, fs, k=6.0)
-        zk, mik, _, _ = mi_z_par(limpo, fs, 5, 35)
-        print(f"  {canal}: baseline z={z0:5.2f} (publicado ~{z_pub}) -> "
-              f"despike k6 z={zk:5.2f} (frac={frac * 100:.2f}%)")
-        linhas_z.append(dict(caso="vizinho_" + canal, canal=canal,
-                             condicao="baseline", z=z0, mi=mi0, frac_removida=0.0))
-        linhas_z.append(dict(caso="vizinho_" + canal, canal=canal,
-                             condicao="despike_k6", z=zk, mi=mik, frac_removida=frac))
+    if vizinhos:
+        print(f"\n=== vizinhos ({args.vizinhos_ini:g}-{args.vizinhos_fim:g}s, "
+              f"pico {args.vizinhos_fp}x{args.vizinhos_fa} Hz) ===")
+        dados, fs, mapa = carrega(casos[0]["arquivo"])
+        for canal, z_pub in vizinhos:
+            idx = mapa[canal]
+            lfp = fatia_janela(dados[:, idx], fs,
+                               args.vizinhos_ini, args.vizinhos_fim).astype(float)
+            lfp_n = aplica_notch(lfp, fs, linha_hz=NOTCH_HZ)
+            z0, mi0, _, _ = mi_z_par(lfp_n, fs, args.vizinhos_fp, args.vizinhos_fa)
+            limpo, ruins, _, frac = remove_transientes(lfp_n, fs, k=6.0)
+            zk, mik, _, _ = mi_z_par(limpo, fs, args.vizinhos_fp, args.vizinhos_fa)
+            print(f"  {canal}: baseline z={z0:5.2f} (publicado ~{z_pub}) -> "
+                  f"despike k6 z={zk:5.2f} (frac={frac * 100:.2f}%)")
+            linhas_z.append(dict(caso="vizinho_" + canal, canal=canal,
+                                 condicao="baseline", z=z0, mi=mi0, frac_removida=0.0))
+            linhas_z.append(dict(caso="vizinho_" + canal, canal=canal,
+                                 condicao="despike_k6", z=zk, mi=mik, frac_removida=frac))
 
     pd.DataFrame(linhas_z).to_csv(
         os.path.join(args.saida_dir, "auditoria_transientes.csv"), index=False)

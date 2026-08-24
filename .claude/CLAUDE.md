@@ -48,7 +48,7 @@ caminhos), ela entra por CLI/CSV — nunca editar listas no código.
   sessão (lições, auditorias, decisões).
 - Tempo: usuário fala em MM:SS GLOBAL da gravação (cada arquivo ≈ 5 min);
   converter para janela LOCAL do arquivo antes de rodar. Offset vídeo↔ns2 é
-  POR SESSÃO (08/07: +321 s; 09/07: ≈0).
+  POR SESSÃO (08/07: +321 s; 09/07: ≈0; 11/07: +100 s).
 - Notch 60 Hz em tudo (rede brasileira). Nula de surrogates: deslocamento
   circular ≥1 s, 200 repetições, semente 42 nos scripts de validação.
 
@@ -58,7 +58,8 @@ caminhos), ela entra por CLI/CSV — nunca editar listas no código.
 |---|---|---|---|---|
 | 1 | 08/07 | 123605 | **VALIDADA** (+ auditoria de transientes, chan16 z=18,3, re-ancoragem do grooming) | 4 canais / 3 episódios |
 | 2 | 09/07 | 141215 | Etapas automáticas completas; faltam sub-segmentação fina e pontuação de sniffing | 4 episódios (V1 destaque z=11,17) |
-| 3–6 | 11/15/22/23-07 | — | pendentes | — |
+| 3 | 11/07 | 121046 | **VALIDADA** (+ auditoria transientes+pegada espacial; ilhas 2–4 s; offset +100 s; dados chegaram duplicados da sessão 2 — substituídos) | 2 canais / 15 episódios |
+| 4–6 | 15/22/23-07 | — | pendentes | — |
 
 Detalhes e lições por sessão: ler o `.claude/CLAUDE.md` e
 `registro_resultados.md` DA SESSÃO (não duplicar aqui).
@@ -75,3 +76,8 @@ Detalhes e lições por sessão: ler o `.claude/CLAUDE.md` e
    (chan16 da sessão 1) — pegada espacial de 32 canais é rede de segurança.
 6. MVL fraco com MI alto acontece (distribuição vs 1º momento) — registrar ⚠,
    não rejeitar sozinho.
+7. Conferir o ID da gravação contra a data da sessão ANTES de rodar em
+   "dados novos" (sessão 3 chegou com cópia exata da sessão 2 — MD5 idêntico).
+8. Acoplamentos podem viver em ILHAS de 2–4 s dentro da janela de 10 s:
+   âncora fina com `audita_segmentos.py`; despike derruba até PAC genuíno
+   bursty — a PEGADA ESPACIAL (gradiente entre vizinhos) é o árbitro final.

@@ -22,6 +22,9 @@ Nova sessão, por CLI (valores específicos NUNCA entram no código):
 """
 import sys
 import argparse
+import os
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
 

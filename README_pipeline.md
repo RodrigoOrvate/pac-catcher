@@ -7,7 +7,7 @@ Validado nas sessões 08/07 e 09/07/2024 do MTESC04 NOCI (ver o
 `registro_resultados.md` de cada sessão e o `CLAUDE.md` desta pasta). Este
 guia descreve como rodar uma **nova sessão**.
 
-## Arquitetura (24/08/2026): um SCRIPT central, dados por sessão
+## Arquitetura (30/08/2026): um SCRIPT central, dados por sessão
 
 O código mora SOMENTE aqui (`C:\acoplamento_theta-gamma\SCRIPT\`) — na raiz
 do grupo, acima das pastas de estudo — e é compartilhado por todas as
@@ -83,6 +83,22 @@ p-valor paramétrico (Gama), FDR-BH sobre todas as janelas (m≈5472),
 co-ocorrência entre canais (descarta ruído de modo comum), kurtose em gamma,
 saturação. Linhas com veredito **"Candidato robusto"** seguem adiante.
 
+### 2.5. Teste de skewness do theta (anti-harmônicos) — `audita_skewness.py`
+```bash
+python auditorias/audita_skewness.py \
+    --csv "<SESSAO>/RESULTADOS/vencedores.csv" \
+    --pasta_ns2 "<SESSAO>/<BASAL>" \
+    --saida "<SESSAO>/RESULTADOS/auditoria/skewness.csv"
+```
+Verifica se a banda de fase é senoide limpa. Quando a razão amp/fase é inteira
+(5×20=4,0; 5×35; 5×45), uma theta assimétrica ("dente de serra") gera MI
+espúrio por carregar um harmônico na banda de amplitude. Skewness
+Fisher-Pearson |g|>0,5 (padrão `--limiar`) = **SUSPECT**; ~0 = **CLEAN**.
+Roda na janela cheia e, se houver, na ilha reancorada (`inicio_ilha_s/fim_ilha_s`).
+**Atenção:** limpar não prova ausência de problema — só descarta a hipótese
+harmônica (ex.: o par 5×20 do MTESC05 era CLEAN mas foi rejeitado por
+instabilidade temporal + FDR, não por harmônico).
+
 ### 3. Comodulogramas em lote (com notch de 60 Hz)
 ```bash
 python comodulogram.py --csv "<SESSAO>/RESULTADOS/resultados_refinados.csv" \
@@ -95,6 +111,9 @@ MI z-scoredo por célula do mapa (fase 4–14 Hz × amplitude 30–150 Hz).
 MI bruto). **Sempre rodar também sem notch** (`--saida_dir comodulogramas`)
 e comparar: pico que cai >1,5z com o notch é rede elétrica, não acoplamento.
 
+**⚠️ NOTCH HARMÔNICOS:** Além do notch em 60 Hz, aplicar também em **120 Hz** (e
+opcionalmente 180 Hz) para controlar harmônicos da rede elétrica brasileira.
+
 ### 4. Conferência comportamental — MANUAL
 - Derivar o mapeamento vídeo↔ns2 da NOVA sessão (o offset muda!):
   anotar o instante do vídeo em que o rato é colocado = início do 1º .ns2.
@@ -102,6 +121,18 @@ e comparar: pico que cai >1,5z com o notch é rede elétrica, não acoplamento.
 - Assistir ao vídeo nos instantes dos candidatos do resumo e anotar o
   comportamento (rearing, grooming, walking, imóvel...). Este passo não é
   automatizável — é o rótulo comportamental que valida ou rejeita.
+
+**⚠️ REGRAS DE SUB-JANELA (evitar double dipping):**
+- Se a janela inicial de 10s contiver dois estados comportamentais, a
+  sub-janela deve ser escolhida por **ENERGIA THETA** (não por MI) para
+  evitar circularidade: "Sempre pegar o sub-segmento de 3s de maior energia
+  theta, independente do MI."
+- O MI/Z-score deve ser recalculado nessa sub-janela, nunca reutilizando
+  o valor da janela original.
+- **Split-half (recomendado para fechar o viés):** usar primeira metade da
+  ilha (ex: 3s) só para decidir o ponto de ancoragem (por energia theta),
+  e calcular MI/Z apenas na segunda metade (os 3s restantes), nunca vista
+  na etapa de seleção. Isso quebra circularidade de fato.
 
 ### 5. Teste de respiração (descarta a fase respiratória)
 ```bash
@@ -156,6 +187,28 @@ python figura_apresentacao.py \
 Critério: z estável (≥3) em todo o sweep de n_bins, pico do mapa imóvel,
 MVL confirmando.
 
+> **Extrair picos com banda + FDR (recomendado ANTES de publicar o par):**
+> `python extrair_picos.py --csv "<SESSAO>/RESULTADOS/vencedores.csv"
+> --pasta_ns2 "<SESSAO>/<BASAL>"
+> --saida "<SESSAO>/RESULTADOS/auditoria/extracao_picos_v1_vs_v2.csv"`.
+> Pico fora da banda 4–8 × 30–80 Hz ou não-significativo sob FDR na célula
+> vencedora é desqualificado (nada de argmax cru) — roda sempre na banda
+> padrão; adicionar `--busca_ampla` só para auditar fora dela.
+
+### 7.5. Held-out anti-double-dipping — `audita_held_out.py`
+```bash
+python auditorias/audita_held_out.py \
+    --csv "<SESSAO>/RESULTADOS/vencedores.csv" \
+    --pasta_ns2 "<SESSAO>/<BASAL>" \
+    --saida "<SESSAO>/RESULTADOS/auditoria/held_out.csv"
+```
+OBRIGATÓRIO quando uma janela foi **reancorada** (`inicio_ilha_s/fim_ilha_s`
+no vencedores.csv). Compara o MI da ILHA reportada contra o RESTO-das-janela
+(+ janela adjacente), z vs 200 surrogates — confirma que o efeito é focal na
+ilha e não inflado pela circularidade da seleção. "Validado" só se z≥3 na
+ilha e <3 no resto. Se nenhuma janela foi reancorada, grava `N/A` e não é
+necessário.
+
 ### 8. Registro de resultados — `registro_resultados.md`
 Ao fim da sessão, criar/atualizar `registro_resultados.md` na pasta
 RESULTADOS da sessão: identificação (rato/dia/arquivos/vídeo + offset),
@@ -192,3 +245,9 @@ Um acoplamento só é "VALIDADO" com **todas**:
 - Sem EMG: risco de circularidade movimento→EMG→PAC é mitigado, não eliminado.
 - A varredura cobre theta 4–8 × gamma 30–80 em janelas de 10 s; acoplamentos
   mais curtos ou fora dessas bandas não seriam detectados.
+- **Sniffing 4–8 Hz:** proxy respiratório (0,5–3 Hz) é cego para sniffing na
+  banda theta; desempate requer vídeo qualitativo ou termistor.
+- **Double dipping:** sub-janelas escolhidas por energia theta, não por MI,
+  para evitar circularidade (regra: energia theta máxima, não MI máximo).
+- **Integer ratio check:** razão amp/fase inteira (ex: 5×35, 5×45) pode indicar
+  theta não-senoidal gerando MI espúrio; checar skewness do theta filtrado.

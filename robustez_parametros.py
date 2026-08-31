@@ -58,12 +58,17 @@ import scipy.signal as signal
 from comodulogram import (filtra_sinal, aplica_notch, calcula_comodulograma_z,
                           z_pico_theta_gamma, _mi_de_bin_idx)
 from ns2_utils import le_ns2, fatia_janela
+from triagem_pac import detecta_transiente, correlacao_gama_ruido, verifica_pixel_isolado
 
 N_BINS_SWEEP = [10, 12, 15, 18, 24, 30]
 MEIA_FAISES = [0.7, 1.0, 1.5, 2.5]
 MEIA_AMPS = [2.5, 3.5, 5.0, 7.5, 10.0]  # curva de sintonia em torno do canônico
 N_SURR = 200
 NOTCH_HZ = 60.0
+
+# Limiares de rejeição (CAMADA 2)
+LIMIAR_MVL = 0.05       # MVL < 0.05 = distribuição circular = rejeitar
+LIMIAR_RAYLEIGH = 0.05  # Rayleigh p > 0.05 = uniforme = rejeitar
 
 
 def mi_z_par(lfp, fs, f_fase, f_amp, n_bins=18, meia_fase=1.0, meia_amp=5.0,
@@ -115,6 +120,42 @@ def mvl_z_par(lfp, fs, f_fase, f_amp, meia_fase=1.0, meia_amp=5.0,
                          for d in deslocamentos])
     dp = mvl_surr.std()
     return (mvl_obs - mvl_surr.mean()) / dp if dp > 0 else 0.0
+
+
+def mvl_bruto_e_rayleigh(lfp, fs, f_fase, f_amp, meia_fase=1.0, meia_amp=5.0):
+    """
+    CAMADA 2 - MVL bruto e Teste de Rayleigh.
+
+    Retorna:
+      - mvl_obs: MVL observado (float)
+      - rayleigh_p: p-valor do teste de Rayleigh (se p>0.05, distribuição é uniforme)
+
+    O Teste de Rayleigh (Zar 1999): para ângulos de fase, testa a hipótese
+    nula de uniformidade direcional. Se a amplitude de gamma está uniformemente
+    distribuída pela fase do theta, NÃO há acoplamento preferencial.
+    """
+    lfp_fase = filtra_sinal(lfp, f_fase - meia_fase, f_fase + meia_fase, fs)
+    fase = np.angle(signal.hilbert(lfp_fase))
+    lfp_amp = filtra_sinal(lfp, f_amp - meia_amp, f_amp + meia_amp, fs)
+    env = np.abs(signal.hilbert(lfp_amp))
+
+    n = len(fase)
+    if n < 10:
+        return 0.0, 1.0
+
+    # MVL bruto
+    # Normaliza envelope para peso igual (MVL puro)
+    mvl_obs = np.abs(np.mean((env - env.mean()) / (env.std() + 1e-12) * np.exp(1j * fase)))
+
+    # Teste de Rayleigh: estatística R = n * MVL, p = exp(-R^2/n) (para n grande)
+    # Versão mais precisa (Greenwood & Durand 1955):
+    R = n * mvl_obs
+    rayleigh_z = R**2 / n
+    rayleigh_p = np.exp(-rayleigh_z) * (1 + (2*rayleigh_z - rayleigh_z**2) / (4*n)
+                                          - (24*rayleigh_z - 132*rayleigh_z**2
+                                              + 76*rayleigh_z**3 - 9*rayleigh_z**4) / (288*n**2))
+
+    return mvl_obs, float(np.clip(rayleigh_p, 0, 1))
 
 
 def main():
@@ -247,12 +288,50 @@ def main():
         # binning (mas só captura o 1º momento -- z menor é normal).
         z_min_nb = min(zs_nb.values())
         z_min_bw = min(list(zs_f.values()) + list(zs_a.values()))
-        robusto = (z_min_nb >= 3) and all(picos_estaveis)
-        conf = "confirma" if z_mvl >= 3 else "não confirma (z menor é esperado)"
+
+        # ============================================================
+        # CAMADA 2 - REJEIÇÃO OBRIGATÓRIA POR MVL/RAYLEIGH
+        # (Teste de Assimetria Polar: distribuições uniformes não são PAC)
+        # ============================================================
+        mvl_bruto, rayleigh_p = mvl_bruto_e_rayleigh(lfp, fs, f_pico, a_pico)
+        rejeitado_mvl = (mvl_bruto < LIMIAR_MVL) or (rayleigh_p > LIMIAR_RAYLEIGH)
+        motivo_mvl = []
+        if mvl_bruto < LIMIAR_MVL:
+            motivo_mvl.append(f"MVL={mvl_bruto:.4f}<{LIMIAR_MVL} (distribuição circular)")
+        if rayleigh_p > LIMIAR_RAYLEIGH:
+            motivo_mvl.append(f"Rayleigh p={rayleigh_p:.3f}>{LIMIAR_RAYLEIGH} (uniforme)")
+
+        # ============================================================
+        # CAMADA 1 - REJEIÇÃO POR TRANSIENTE
+        # ============================================================
+        trans_info = detecta_transiente(lfp, fs)
+        rejeitado_trans = trans_info["transiente_encontrado"]
+
+        # ============================================================
+        # CAMADA 4 - REJEIÇÃO POR BANDA LARGA (γ↔ruído correlacionado)
+        # ============================================================
+        banda_info = correlacao_gama_ruido(lfp, fs)
+        rejeitado_banda = banda_info["suspeito_banda_larga"]
+
+        robusto = (z_min_nb >= 3) and all(picos_estaveis) and not rejeitado_mvl \
+                   and not rejeitado_trans and not rejeitado_banda
+
+        if rejeitado_mvl or rejeitado_trans or rejeitado_banda:
+            status = f"FALSO POSITIVO (rejeitado por: {', '.join(motivo_mvl) if motivo_mvl else ''}"
+            if rejeitado_trans:
+                status += f", transiente max_diff={trans_info['max_diff_z']:.1f}σ"
+            if rejeitado_banda:
+                status += f", banda larga r={banda_info['correlacao_ruido']:.2f}"
+            status += ")"
+        else:
+            conf = "confirma" if z_mvl >= 3 else "não confirma (z menor é esperado)"
+            status = f"ROBUSTO ({conf})"
+
         print(f"  >> n_bins: z mínimo {z_min_nb:.2f} | larguras: z mínimo "
               f"{z_min_bw:.2f} | pico estável: {all(picos_estaveis)} | "
-              f"MVL z={z_mvl:.2f} ({conf}) -> "
-              f"{'ROBUSTO' if robusto else 'FRÁGIL'}")
+              f"MVL z={z_mvl:.2f} (bruto={mvl_bruto:.4f}, Rayleigh p={rayleigh_p:.3f}) | "
+              f"transiente: {trans_info['transiente_encontrado']} | "
+              f"r(γ,ruido)={banda_info['correlacao_ruido']:.2f} -> {status}")
 
     df = pd.DataFrame(linhas)
     df.to_csv(args.saida_csv, index=False)

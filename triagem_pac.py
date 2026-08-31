@@ -140,6 +140,177 @@ def proxy_artefato_motor(sinal, fs, banda=(150, 450)):
     return pot_alta / pot_total
 
 
+def detecta_transiente(sinal, fs, limiar_diff=8.0, limiar_amp=8.0):
+    """
+    CAMADA 1 - FILTRO DE TRANSIENTE (Domínio do Tempo).
+    Detecta artefatos de cabo/movimento abruptos que destroem a estatística PAC.
+
+    Critérios:
+      - Derivada: np.diff() excessivamente alto (variação abrupta de voltagem).
+      - Amplitude: Z-score da amplitude absoluta cruza limiar (saturação/clipping).
+
+    Args:
+        sinal: LFP bruto (1D array).
+        fs: Frequência de amostragem (Hz).
+        limiar_diff: Desvio padrão multiplicador para a derivada (default: 5σ).
+        limiar_amp: Desvio padrão multiplicador para amplitude (default: 5σ).
+
+    Returns:
+        dict com:
+          - 'transiente_encontrado': bool
+          - 'frac_transiente': fração de pontos affected (0-1)
+          - 'max_diff_z': z-score máximo da derivada
+          - 'max_amp_z': z-score máximo da amplitude
+    """
+    sinal = np.asarray(sinal, dtype=np.float64)
+
+    # 1. Teste da Derivada (variação abrupta de voltagem)
+    diff_sinal = np.abs(np.diff(sinal))
+    media_diff = np.mean(diff_sinal)
+    std_diff = np.std(diff_sinal)
+    if std_diff > 0:
+        diff_zscore = (diff_sinal - media_diff) / std_diff
+        max_diff_z = np.max(diff_zscore)
+    else:
+        max_diff_z = 0.0
+
+    # 2. Teste de Amplitude (Z-score da voltagem absoluta)
+    media_amp = np.mean(np.abs(sinal))
+    std_amp = np.std(sinal)
+    if std_amp > 0:
+        amp_zscore = (np.abs(sinal) - media_amp) / std_amp
+        max_amp_z = np.max(amp_zscore)
+    else:
+        max_amp_z = 0.0
+
+    # 3. Fração de pontos afetados (pelo menos 1s ao redor de cada transiente)
+    # diff_zscore tem 1 ponto a menos que sinal (perde o primeiro)
+    mask_diff = diff_zscore > limiar_diff
+    mask_amp = amp_zscore > limiar_amp
+    # Trunca mask_diff para o mesmo tamanho (perde o último ponto)
+    mask_diff_trunc = np.zeros_like(mask_amp)
+    mask_diff_trunc[:-1] = mask_diff
+    n_afetados = np.sum(mask_diff_trunc | mask_amp)
+    frac_transiente = n_afetados / len(sinal)
+
+    transiente_encontrado = (max_diff_z > limiar_diff) or (max_amp_z > limiar_amp)
+
+    return {
+        "transiente_encontrado": transiente_encontrado,
+        "frac_transiente": frac_transiente,
+        "max_diff_z": max_diff_z,
+        "max_amp_z": max_amp_z,
+        "limiar_diff": limiar_diff,
+        "limiar_amp": limiar_amp,
+    }
+
+
+def correlacao_gama_ruido(sinal, fs, theta_band=(4, 8), gamma_band=(30, 80),
+                           ruido_band=(150, 250), limiar_r=0.6):
+    """
+    CAMADA 4 - PUNIÇÃO POR BANDA LARGA (Domínio Tempo-Frequência).
+    Se a energia do Gamma e do Ruído (150-250 Hz) crescem juntas, é transiente
+    mecânico (rato bater a cabeça / puxar conector), não oscilação neural.
+
+    Critério: Correlação de Pearson entre envelope do Gamma e banda de ruído.
+    Se r > 0.6, o PAC da janela é provavelmente artefato.
+
+    Args:
+        sinal: LFP bruto (1D array).
+        fs: Frequência de amostragem (Hz).
+        theta_band: Banda de fase (Hz).
+        gamma_band: Banda de amplitude (Hz).
+        ruido_band: Banda de "ruído" para comparação (Hz).
+        limiar_r: Limiar de correlação para flag (default: 0.6).
+
+    Returns:
+        dict com:
+          - 'correlacao_ruido': valor de r de Pearson (-1 a 1).
+          - 'suspeito_banda_larga': bool (True se r > limiar_r).
+          - 'mvl': Mean Vector Length (para CAMADA 2).
+    """
+    # Filtra as bandas
+    lfp_theta = filtra_sinal(sinal, *theta_band, fs)
+    lfp_gamma = filtra_sinal(sinal, *gamma_band, fs)
+    lfp_ruido = filtra_sinal(sinal, *ruido_band, fs)
+
+    # Envelope do Gamma e Ruído
+    env_gamma = np.abs(signal.hilbert(lfp_gamma))
+    env_ruido = np.abs(signal.hilbert(lfp_ruido))
+
+    # Correlação de Pearson entre envelopes
+    if np.std(env_gamma) > 0 and np.std(env_ruido) > 0:
+        correlacao = np.corrcoef(env_gamma, env_ruido)[0, 1]
+    else:
+        correlacao = 0.0
+
+    # MVL (Mean Vector Length) - CAMADA 2
+    fase = np.angle(signal.hilbert(lfp_theta))
+    # Normaliza envelope
+    env_norm = (env_gamma - np.mean(env_gamma)) / (np.std(env_gamma) + 1e-12)
+    complexo = env_norm * np.exp(1j * fase)
+    mvl = np.abs(np.mean(complexo))
+
+    return {
+        "correlacao_ruido": correlacao,
+        "suspeito_banda_larga": correlacao > limiar_r,
+        "mvl": mvl,
+        "limiar_r": limiar_r,
+    }
+
+
+def verifica_pixel_isolado(mapa, x_pico, y_pico, limiar_queda=0.6):
+    """
+    CAMADA 3 - FILTRO DE ESPALHAMENTO ESPECTRAL (Domínio da Frequência).
+    Verifica se o pixel de máximo (pico no comodulograma) é isolado ou
+    tem "ombros" (pixels adjacentes significativos).
+
+    Redes biológicas têm banda contígua; artefatos são pixels hiperespecíficos.
+
+    Args:
+        mapa: 2D array (n_fases x n_amplitudes).
+        x_pico: índice de fase do pico.
+        y_pico: índice de amplitude do pico.
+        limiar_queda: fração de perda mínima para considerar vizinho "significativo".
+
+    Returns:
+        dict com:
+          - 'pixel_isolado': bool
+          - 'pico_valor': valor do pixel de pico.
+          - 'queda_media': queda média percentual em relação aos vizinhos.
+    """
+    if x_pico < 0 or y_pico < 0 or x_pico >= mapa.shape[0] or y_pico >= mapa.shape[1]:
+        return {"pixel_isolado": True, "pico_valor": 0.0, "queda_media": 0.0}
+
+    pico_valor = mapa[x_pico, y_pico]
+    if pico_valor <= 0:
+        return {"pixel_isolado": True, "pico_valor": pico_valor, "queda_media": 0.0}
+
+    # Vizinhos ortogonais (8-conectividade simplificada)
+    vizinhos = []
+    for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1)]:
+        nx, ny = x_pico + dx, y_pico + dy
+        if 0 <= nx < mapa.shape[0] and 0 <= ny < mapa.shape[1]:
+            vizinhos.append(mapa[nx, ny])
+
+    if not vizinhos:
+        return {"pixel_isolado": True, "pico_valor": pico_valor, "queda_media": 1.0}
+
+    # Calcula queda média percentual em relação aos vizinhos
+    quedas = [(pico_valor - v) / pico_valor for v in vizinhos]
+    queda_media = np.mean(quedas)
+
+    # Pixel isolado se a queda média for > limiar_queda (60%)
+    pixel_isolado = queda_media > limiar_queda
+
+    return {
+        "pixel_isolado": pixel_isolado,
+        "pico_valor": pico_valor,
+        "queda_media": queda_media,
+        "n_vizinhos_significativos": sum(1 for q in quedas if q < limiar_queda),
+    }
+
+
 # ==========================================
 # VARREDURA DE UM CANAL / JANELA
 # ==========================================
@@ -169,6 +340,10 @@ def varre_canal(sinal, fs, window_s=10.0, step_s=5.0, n_surr=200,
         )
         artefato = proxy_artefato_motor(trecho, fs)
 
+        # CAMADAS DE DEFESA ANTI-FALSO-POSITIVO
+        resultado_transiente = detecta_transiente(trecho, fs)
+        resultado_banda = correlacao_gama_ruido(trecho, fs)
+
         resultados.append({
             "janela_ini_s": ini / fs,
             "janela_fim_s": fim / fs,
@@ -178,6 +353,16 @@ def varre_canal(sinal, fs, window_s=10.0, step_s=5.0, n_surr=200,
             "z_score": z,
             "p_empirico": p_emp,
             "proxy_artefato_motor": artefato,
+            # CAMADA 1: Transiente
+            "transiente_detectado": resultado_transiente["transiente_encontrado"],
+            "frac_transiente": round(resultado_transiente["frac_transiente"], 4),
+            "max_diff_z": round(resultado_transiente["max_diff_z"], 2),
+            "max_amp_z": round(resultado_transiente["max_amp_z"], 2),
+            # CAMADA 2: MVL (Mean Vector Length)
+            "mvl": round(resultado_banda["mvl"], 4),
+            # CAMADA 4: Correlação com banda de ruído
+            "correlacao_ruido": round(resultado_banda["correlacao_ruido"], 3),
+            "suspeito_banda_larga": resultado_banda["suspeito_banda_larga"],
         })
 
         if rotulo_progresso and (n_janela % 10 == 0 or n_janela == total - 1):
@@ -255,9 +440,10 @@ def roda_demo():
     df["esperado"] = np.where(df["janela_ini_s"] < dur / 2, "ruído (sem acoplamento)",
                                "acoplamento real")
 
-    pd.set_option("display.width", 120)
-    print(df[["janela_ini_s", "janela_fim_s", "mi_observado", "z_score",
-              "p_empirico", "esperado"]].to_string(index=False))
+    pd.set_option("display.width", 160)
+    cols = ["janela_ini_s", "z_score", "p_empirico",
+            "transiente_detectado", "suspeito_banda_larga", "mvl", "esperado"]
+    print(df[cols].to_string(index=False))
 
     print("\nCheck esperado: janelas 'ruído' devem ter z baixo (~0-2) e p alto;")
     print("janelas 'acoplamento real' devem ter z alto (>>3) e p baixo (~0).")
@@ -282,6 +468,12 @@ def main():
                      help="z-score mínimo para considerar candidato")
     ap.add_argument("--saida", default="resultados_triagem.csv")
     ap.add_argument("--demo", action="store_true", help="Roda autoteste sintético")
+    ap.add_argument("--limiar_transiente_diff", type=float, default=8.0,
+                     help="Limiar de σ para derivada (CAMADA 1 - default: 8σ)")
+    ap.add_argument("--limiar_transiente_amp", type=float, default=8.0,
+                     help="Limiar de σ para amplitude (CAMADA 1 - default: 8σ)")
+    ap.add_argument("--limiar_corr_ruido", type=float, default=0.6,
+                     help="Correlação γ↔ruído para rejeitar (CAMADA 4 - default: 0.6)")
     args = ap.parse_args()
 
     if args.demo:
@@ -323,13 +515,29 @@ def main():
     print(f"Candidatos com z >= {args.z_corte}: {len(candidatos)}")
 
     if len(candidatos) > 0:
-        print("\nTop candidatos (revisar proxy_artefato_motor antes de confiar):")
-        print(candidatos.head(15)[[
-            "arquivo", "canal", "janela_ini_s", "janela_fim_s",
-            "z_score", "p_empirico", "proxy_artefato_motor"
-        ]].to_string(index=False))
-        print("\nATENÇÃO: se proxy_artefato_motor estiver alto nos mesmos candidatos"
-              " de z-score alto, desconfie de artefato muscular antes de ir ao vídeo.")
+        # Aplica filtros ANTI-FALSO-POSITIVO na saída
+        candidatos_filtrados = candidatos[
+            (~candidatos.get("transiente_detectado", False)) &
+            (~candidatos.get("suspeito_banda_larga", False))
+        ]
+        n_rejeitados = len(candidatos) - len(candidatos_filtrados)
+
+        print(f"\nFiltros anti-falso-positivo aplicados:")
+        print(f"  - Transientes (diff>5σ ou amp>5σ): {int(candidatos.get('transiente_detectado', pd.Series([False]*len(candidatos))).sum())} janelas rejeitadas")
+        print(f"  - Correlação γ↔ruído (r>0.6): {int(candidatos.get('suspeito_banda_larga', pd.Series([False]*len(candidatos))).sum())} janelas suspeitas")
+        print(f"  Total rejeitados: {n_rejeitados}")
+        print(f"  Candidatos restantes: {len(candidatos_filtrados)}")
+
+        print("\nTop candidatos (após filtros):")
+        cols = ["arquivo", "canal", "janela_ini_s", "z_score",
+                "transiente_detectado", "suspeito_banda_larga", "mvl"]
+        print(candidatos_filtrados.head(15)[cols].to_string(index=False))
+
+        print("\n⚠️ LEGENDA DOS NOVOS FILTROS:")
+        print("  transiente_detectado=True = artefato de cabo/movimento (REJEITAR)")
+        print("  suspeito_banda_larga=True = energia sincronizada em todas as bandas (REJEITAR)")
+        print("  mvl = Mean Vector Length (quanto maior, mais direção preferencial da fase)")
+        print("     mvl<0.05 sugere distribuição circular (não é acoplamento real)")
 
 
 if __name__ == "__main__":

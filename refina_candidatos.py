@@ -56,6 +56,7 @@ import scipy.signal as signal
 import scipy.stats as stats
 
 from ns2_utils import le_ns2, fatia_janela
+from triagem_pac import detecta_transiente, correlacao_gama_ruido
 
 
 # ==========================================
@@ -257,6 +258,10 @@ def main():
             kurt = kurtose_gamma(trecho, fs)
             sat = proxy_saturacao(trecho_bruto)
 
+            # CAMADAS ANTI-FALSO-POSITIVO (Herda do triagem_pac.py)
+            trans_info = detecta_transiente(trecho, fs)
+            banda_info = correlacao_gama_ruido(trecho, fs)
+
             resultados.append({
                 "arquivo": arquivo,
                 "canal": row.canal,
@@ -269,6 +274,14 @@ def main():
                 "kurtose_gamma": kurt,
                 "proxy_saturacao": sat,
                 "proxy_artefato_motor_150_450hz": row.proxy_artefato_motor,
+                # CAMADA 1: Transiente
+                "transiente_detectado": trans_info["transiente_encontrado"],
+                "frac_transiente": round(trans_info["frac_transiente"], 4),
+                # CAMADA 2: MVL
+                "mvl": round(banda_info["mvl"], 4),
+                # CAMADA 4: Correlação γ↔ruído
+                "correlacao_ruido": round(banda_info["correlacao_ruido"], 3),
+                "suspeito_banda_larga": banda_info["suspeito_banda_larga"],
             })
 
             if n_i % 20 == 0 or n_i == len(grupo):

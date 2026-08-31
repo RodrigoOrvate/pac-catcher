@@ -260,6 +260,70 @@ def z_pico_theta_gamma(z_mapa, fases_freq, amps_freq,
     )
 
 
+def classifica_pico_por_vizinhanca(z_mapa, f_pico_hz, a_pico_hz, fases_freq, amps_freq,
+                                    limiar_queda=0.6):
+    """
+    CAMADA 3 - AUDITORIA DE ESPALHAMENTO ESPECTRAL (Domínio da Frequência).
+
+    Redes biológicas têm variância intrínseca: modulação ocupa uma BANDA
+    contígua (ex: 60-80 Hz), não uma frequência hiperespecífica.
+    Artefatos e ruído de alta frequência produzem pixels isolados.
+
+    Args:
+        z_mapa: matriz 2D (n_amps x n_fases).
+        f_pico_hz, a_pico_hz: coordenadas do pico.
+        fases_freq, amps_freq: arrays de frequências.
+        limiar_queda: queda percentual mínima (0.6 = 60%) para considerar pixel isolado.
+
+    Returns:
+        dict com:
+          - 'pixel_isolado': bool
+          - 'pico_z': z do pixel de pico
+          - 'queda_media': queda média em relação aos 8 vizinhos
+          - 'n_vizinhos_significativos': vizinhos dentro do limiar
+    """
+    # Encontra índice do pico mais próximo das coordenadas Hz
+    i_fase = np.argmin(np.abs(fases_freq - f_pico_hz))
+    i_amp = np.argmin(np.abs(amps_freq - a_pico_hz))
+
+    if (i_amp >= z_mapa.shape[0]) or (i_fase >= z_mapa.shape[1]):
+        return {"pixel_isolado": True, "pico_z": 0.0, "queda_media": 0.0,
+                "n_vizinhos_significativos": 0}
+
+    pico_z = z_mapa[i_amp, i_fase]
+    if pico_z <= 0:
+        return {"pixel_isolado": True, "pico_z": pico_z, "queda_media": 0.0,
+                "n_vizinhos_significativos": 0}
+
+    # 8-vizinhos
+    vizinhos_vals = []
+    for di in [-1, 0, 1]:
+        for dj in [-1, 0, 1]:
+            if di == 0 and dj == 0:
+                continue
+            ni, nj = i_amp + di, i_fase + dj
+            if 0 <= ni < z_mapa.shape[0] and 0 <= nj < z_mapa.shape[1]:
+                vizinhos_vals.append(z_mapa[ni, nj])
+
+    if not vizinhos_vals:
+        return {"pixel_isolado": True, "pico_z": pico_z, "queda_media": 1.0,
+                "n_vizinhos_significativos": 0}
+
+    quedas = [(pico_z - v) / pico_z if pico_z > 0 else 1.0 for v in vizinhos_vals]
+    queda_media = float(np.mean(quedas))
+    n_vizinhos_significativos = int(sum(1 for q in quedas if q < limiar_queda))
+
+    # Pixel é isolado se a queda média for > 60% (vizinhos muito menores)
+    pixel_isolado = queda_media > limiar_queda
+
+    return {
+        "pixel_isolado": pixel_isolado,
+        "pico_z": float(pico_z),
+        "queda_media": queda_media,
+        "n_vizinhos_significativos": n_vizinhos_significativos,
+    }
+
+
 # ==========================================
 # VISUALIZAÇÃO
 # ==========================================

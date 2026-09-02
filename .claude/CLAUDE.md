@@ -6,7 +6,7 @@
 compartilhado por TODOS os estudos e sessões (MTESC04/MTESC05 × NOCI/LAC).
 Nada de específico de sessão mora aqui — nem dados, nem saídas, nem listas de
 vencedores. Rodar os comandos DE DENTRO desta pasta, apontando para a sessão
-por caminho relativo (ver `README_pipeline.md`).
+por caminho relativo (ver `pipeline/README_pipeline.md`).
 
 ```
 C:\acoplamento_theta-gamma\
@@ -43,6 +43,10 @@ SCRIPT/
 ├── extrair_picos.py      → extracao_picos_v1_vs_v2.csv (re-verifica pico com banda restrita + FDR)
 ├── ns2_utils.py
 ├── gerar_relatorio_pdf.py← CSV-driven (lê vencedores_consolidado.csv)
+├── preditor/             ← PROJETO NOVO: prever PAC p/ disparar TTL (optogenética)
+│   ├── analisar_pre_evento.py   treinar_preditor.py   validar_preditor.py
+│   ├── prever_pac_tempo_real.py modelo_pac.pkl
+│   └── README_preditor.md       (contexto, estado, comandos — LER antes)
 └── auditorias/           ← validação (um por função):
     ├── audita_transientes.py   audita_segmentos.py   audita_footprint.py
     ├── diagnostico_janela.py   audita_skewness.py    audita_held_out.py
@@ -96,7 +100,7 @@ RESULTADOS_CONSOLIDADOS/
 ## Convenções do estudo
 
 - **Pipeline**: 8 passos (+2.5 skewness e 7.5 held-out) documentados no
-  `README_pipeline.md` (triagem → refinamento → comodulogramas → conferência
+  `pipeline/README_pipeline.md` (triagem → refinamento → comodulogramas → conferência
   comportamental manual → respiração → FDR mapa → robustez+figuras → registro).
 - **Validação = 5 etapas**: FDR de janela; não-60 Hz (notch sempre);
   respiração; FDR do mapa "concentrado em ΘΓ"; robustez (n_bins/larguras/
@@ -118,6 +122,7 @@ RESULTADOS_CONSOLIDADOS/
 - Tempo: usuário fala em MM:SS GLOBAL da gravação (cada arquivo ≈ 5 min);
   converter para janela LOCAL do arquivo antes de rodar. Offset vídeo↔ns2 é
   POR SESSÃO (08/07: +321 s; 09/07: ≈0; 11/07: +100 s).
+  MTESC03_LAC: Rodada-1-02/04/05 e Rodada-2-06/09/05 = **+2 s** (derivado 31/08/2026).
 - Notch 60 Hz em tudo (rede brasileira). Nula de surrogates: deslocamento
   circular ≥1 s, 200 repetições, semente 42 nos scripts de validação.
 
@@ -130,6 +135,7 @@ RESULTADOS_CONSOLIDADOS/
 | 3 | 11/07 | 121046 | **VALIDADA** (+ auditoria transientes+pegada espacial; ilhas 2–4 s; offset +100 s; dados chegaram duplicados da sessão 2 — substituídos) | 2 canais / 15 episódios |
 | 4 | 15/07 | — | **EXCLUÍDA** (erro de sincronia vídeo↔ns2) | — |
 | 5–6 | 22/23-07 | — | pendentes | — |
+| MT05_LAC | 02/05 | 20240502-141712 | **MTESC05_LAC Rodada 1**: 1 vencedor validado (chan3 @ 210-220s, z=4.94, pegada focal 2/32 canais). Offset +2s. Demais sessões rejeitadas (04/05: 0 robustos; Rodada 2: artefatos mecânicos/EMG). | 1 canal / 1 episódio |
 
 Detalhes e lições por sessão: ler o `.claude/CLAUDE.md` e
 `registro_resultados.md` DA SESSÃO (não duplicar aqui).
@@ -160,3 +166,10 @@ Detalhes e lições por sessão: ler o `.claude/CLAUDE.md` e
     banda canônica (4–8 × 30–80 Hz) ou não-significativo sob FDR na célula
     vencedora é desqualificado (ex.: chan16 8×115 e estático 5×20, MTESC05).
     Rodar `extrair_picos.py` antes de publicar o par.
+11. **Sniffing/respiração NÃO exclui sozinho**: antes de rejeitar um candidato
+    por sniffing (ou respiração na banda theta), passá-lo pela PEGADA ESPACIAL
+    (`audita_footprint.py`) + vídeo. Focal (poucos vizinhos) = fonte local =
+    mantém (ex.: MTESC05_LAC chan3 S1, sniffing validado, pegada 2/32); difusa
+    (muitos canais z≥3) = co-detecção = rejeita. O sniffing remaneja ao passo
+    da pegada, não derruba direto. Rigidez estatística (FDR/notch/
+    surrogates/pegada) permanece. Documentado em `pipeline/README_pipeline.md`.

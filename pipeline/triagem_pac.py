@@ -523,8 +523,8 @@ def main():
         n_rejeitados = len(candidatos) - len(candidatos_filtrados)
 
         print(f"\nFiltros anti-falso-positivo aplicados:")
-        print(f"  - Transientes (diff>5σ ou amp>5σ): {int(candidatos.get('transiente_detectado', pd.Series([False]*len(candidatos))).sum())} janelas rejeitadas")
-        print(f"  - Correlação γ↔ruído (r>0.6): {int(candidatos.get('suspeito_banda_larga', pd.Series([False]*len(candidatos))).sum())} janelas suspeitas")
+        print(f"  - Transientes (diff>5sigma ou amp>5sigma): {int(candidatos.get('transiente_detectado', pd.Series([False]*len(candidatos))).sum())} janelas rejeitadas")
+        print(f"  - Correlacao gamma-ruido (r>0.6): {int(candidatos.get('suspeito_banda_larga', pd.Series([False]*len(candidatos))).sum())} janelas suspeitas")
         print(f"  Total rejeitados: {n_rejeitados}")
         print(f"  Candidatos restantes: {len(candidatos_filtrados)}")
 
@@ -533,7 +533,7 @@ def main():
                 "transiente_detectado", "suspeito_banda_larga", "mvl"]
         print(candidatos_filtrados.head(15)[cols].to_string(index=False))
 
-        print("\n⚠️ LEGENDA DOS NOVOS FILTROS:")
+        print("\nLEGENDA DOS NOVOS FILTROS:")
         print("  transiente_detectado=True = artefato de cabo/movimento (REJEITAR)")
         print("  suspeito_banda_larga=True = energia sincronizada em todas as bandas (REJEITAR)")
         print("  mvl = Mean Vector Length (quanto maior, mais direção preferencial da fase)")

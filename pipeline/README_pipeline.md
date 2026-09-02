@@ -147,6 +147,19 @@ Checar também o fator de crista do theta (>2 = transientes, suspeito).
 Atenção: a banda respiratória do proxy é 0,5–3 Hz — CEGA para sniffing
 4–8 Hz; desempate fino exige vídeo.
 
+**⚠️ REGRA: sniffing/respiração NÃO exclui sozinho.** Se o candidato cai em
+sniffing (ou respiração na banda theta), **não rejeite ainda** — antes de decidir,
+passe-o pelo passo extra da **pegada espacial** (`audita_footprint.py`) + vídeo:
+- **Pegada FOCAL** (poucos canais vizinhos, gradiente de z) = fonte local =
+  acoplamento genuíno → **mantém** mesmo com sniffing coincidente (ex.: MTESC05_LAC
+  `chan3` S1, "neutro+sniffing intermitente", validado com pegada 2/32).
+- **Pegada DIFUSA** (muitos canais z≥3, pico idêntico em vizinhos) =
+  co-detecção/condução de volume → **rejeita** (não é N eventos independentes).
+
+Ou seja: o sniffing REMANEJA o candidato um passo à frente (pegada + vídeo)
+antes da decisão final — evita excluir verdadeiros positivos. A rigidez
+**estatística** (FDR, notch, surrogates, pegada) permanece intacta.
+
 ### 6. FDR sobre o mapa do comodulograma
 ```bash
 python comodulogram.py --csv "<SESSAO>/RESULTADOS/resultados_refinados.csv" \

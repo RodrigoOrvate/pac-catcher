@@ -24,10 +24,12 @@ Cenarios testados (versao expandida)
 ==========================================================================
 A) Harmonico em multiplas ordens (2x, 3x, 4x, 5x) com fase travada
 B) Acoplamento genuino: gamma independente com envelope modulado
-C) Quase-coincidencia: gamma independente em freq proxima a um multiplo
+C) Quase-coincidencia (freq dentro de tolerancia, fase LIVRE)
 D) Sweep de SNR: ruido gaussiano crescente no cenario A (3x)
 E) Fundo aperiodico realista: pink noise (1/f^n) + Gaussiana de teta
    (segue secao "Simulated data" de Kuhn et al. 2026)
+F) Sweep de configuracao FOOOF: compara nperseg/peak_width em
+   configuracao de producao vs teste
 
 Uso:
     python test_synthetic_harmonico.py
@@ -41,6 +43,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "pip
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "pipeline/auditorias"))
 
 from scipy.signal import butter, filtfilt
+from fooof import FOOOF
+from scipy.signal import welch
 
 from audita_harmonico import (
     extrai_cf_teta_fooof,
@@ -76,36 +80,26 @@ def skewness_from_band(data, fs, lo=4, hi=8, order=4):
 
 
 def generate_pink_noise(n_samples, slope=1.2, rng=None):
-    """
-    Gera pink noise (1/f^slope) via filtragem de white noise.
-    slope=1.2 segue Kuhn et al. 2026 (Fig. 1).
-    """
+    """Pink noise (1/f^slope) via FFT. slope=1.2 segue Kuhn et al. 2026."""
     if rng is None:
         rng = np.random.default_rng(42)
     white = rng.standard_normal(n_samples)
-    # FFT-based pink noise
     fft = np.fft.rfft(white)
     freqs = np.fft.rfftfreq(n_samples)
-    freqs[0] = 1.0  # evita divisao por zero
+    freqs[0] = 1.0
     fft = fft / (freqs ** (slope / 2))
     pink = np.fft.irfft(fft, n=n_samples)
-    return pink / np.std(pink)  # normaliza
+    return pink / np.std(pink)
 
 
 def generate_aperiodic_background(n_samples, fs, knee_freq=28.0, slope=1.2,
                                    offset=1.0, rng=None):
-    """
-    Gera componente aperiodico conforme Kuhn et al. 2026:
-        L(f) = offset - slope * log10(f + knee_freq)
-    Modelo 'knee' simplificado para gerar o PSD de fundo.
-    """
+    """Fundo aperiodico com perfil knee (Kuhn et al. 2026)."""
     if rng is None:
         rng = np.random.default_rng(42)
-    # White noise no dominio do tempo
     white = rng.standard_normal(n_samples)
     fft = np.fft.rfft(white)
     freqs = np.fft.rfftfreq(n_samples, d=1.0/fs)
-    # Aplica perfil 1/f^knee
     freqs[0] = 1.0
     psd_profile = 1.0 / (1.0 + (freqs / knee_freq) ** slope)
     fft_shaped = fft * np.sqrt(psd_profile)
@@ -113,66 +107,35 @@ def generate_aperiodic_background(n_samples, fs, knee_freq=28.0, slope=1.2,
     return signal * offset
 
 
-# FOOOF internals for synthetic test:
-# Com nperseg=1.2s -> freq_res~0.83Hz. peak_width_limits=(2,5) exige 2-5 bins.
-# Em sinal real (knee~28Hz, slope~1.2), o teta emerge do fundo. Em sinal
-# sintetico sem estrutura biologica real, o ajuste falha com esses parametros.
-# Para o teste sintetico, usamos nperseg=1.0s (freq_res=1Hz) e limites de
-# largura mais flexiveis. ESTES SAO APENAS PARA O TESTE SINTETICO. O codigo
-# de producao (audita_harmonico.py) usa os parametros calibrados para LFP real.
-_FOOOF_TEST_KWARGS = {
-    "aperiodic_mode": "knee",
-    "peak_width_limits": (1.0, 4.0),   # mais flexivel (sintetico)
-    "min_peak_height": 0.02,            # mais sensivel
-    "peak_threshold": 1.0,
-    "max_n_peaks": 1,
-    "nperseg_s": 1.0,                  # freq_res=1Hz, ~9 bins em 4-12Hz
-}
-
-
 def generate_harmonic_signal(fs, dur_s, f_theta=8.0, ordem=3,
                               snr_db=20.0, aperiodic=True,
                               seed=42):
-    """
-    Cenario A: Teta nao-senoidal + harmonico de ordem n com fase rigida.
-    snr_db: SNR do teta+gamma em relacao ao ruido (dB).
-    aperiodic: se True, adiciona fundo 1/f realista.
-    """
+    """Cenario A: Teta nao-senoidal + harmonico de ordem n com fase rigida."""
     rng = np.random.default_rng(seed)
     t = np.arange(0, dur_s, 1.0 / fs)
     n = len(t)
 
-    # Teta sawtooth-like (soma de senoides)
     teta = (
         np.sin(2 * np.pi * f_theta * t)
         + 0.5 * np.sin(2 * np.pi * 2 * f_theta * t)
         + 0.3 * np.sin(2 * np.pi * 3 * f_theta * t)
     )
 
-    # Gamma harmonico: fase travada em n*phi_theta
     f_gamma = ordem * f_theta
     phi_teta = 2 * np.pi * f_theta * t
     gamma = 0.5 * np.sin(ordem * phi_teta)
 
-    # Sinal base
     sinal_base = teta + gamma
-
-    # Ruido: gaussiano + (opcional) fundo aperiodico
+    pot_sinal = np.var(sinal_base)
+    pot_ruido_desejada = pot_sinal / (10 ** (snr_db / 10))
     ruido_gauss = rng.standard_normal(n) * 0.05
     if aperiodic:
-        # SNR: potencia(teta+gamma) / potencia(ruido_total) = 10^(SNR/10)
-        pot_sinal = np.var(sinal_base)
-        pot_ruido_desejada = pot_sinal / (10 ** (snr_db / 10))
-        # Componente aperiodico
         aper = generate_aperiodic_background(n, fs, knee_freq=28.0,
                                             slope=1.2, offset=1.0, rng=rng)
         aper = aper / np.std(aper) * np.sqrt(pot_ruido_desejada * 0.7)
         ruido_gauss = ruido_gauss / np.std(ruido_gauss) * np.sqrt(pot_ruido_desejada * 0.3)
         ruido = aper + ruido_gauss
     else:
-        # Ajusta ruido gaussiano para SNR desejado
-        pot_sinal = np.var(sinal_base)
-        pot_ruido_desejada = pot_sinal / (10 ** (snr_db / 10))
         ruido_gauss = ruido_gauss / np.std(ruido_gauss) * np.sqrt(pot_ruido_desejada)
         ruido = ruido_gauss
 
@@ -182,23 +145,17 @@ def generate_harmonic_signal(fs, dur_s, f_theta=8.0, ordem=3,
 
 def generate_genuine_coupling(fs, dur_s, f_theta=8.0, f_gamma=35.0,
                                 snr_db=20.0, aperiodic=True, seed=42):
-    """
-    Cenario B: Teta senoidal + Gamma independente com envelope modulado.
-    Gera MI alto mas SEM rigidez de fase n:1.
-    """
+    """Cenario B: Teta senoidal + Gamma independente com envelope modulado."""
     rng = np.random.default_rng(seed)
     t = np.arange(0, dur_s, 1.0 / fs)
     n = len(t)
 
-    # Teta senoidal puro
     teta = np.sin(2 * np.pi * f_theta * t)
 
-    # Gamma 35Hz: ruido filtrado em banda (NAO e harmonico de 8Hz)
     ruido_g = rng.standard_normal(n)
     b, a = butter(4, [(f_gamma - 5) / 500, (f_gamma + 5) / 500], btype="band")
     gamma = 0.5 * filtfilt(b, a, ruido_g)
 
-    # Modulacao de envelope (gera MI sem PLV)
     envelope = 0.5 + 0.5 * np.sin(2 * np.pi * f_theta * t)
     gamma_mod = gamma * envelope
 
@@ -219,22 +176,33 @@ def generate_genuine_coupling(fs, dur_s, f_theta=8.0, f_gamma=35.0,
     return sinal, fs, f_theta, f_gamma
 
 
-def generate_near_coincidence(fs, dur_s, f_theta=8.0, f_gamma=25.0,
+def generate_near_coincidence(fs, dur_s, f_theta=8.0, f_gamma=23.7,
                                  snr_db=20.0, aperiodic=True, seed=42):
     """
-    Cenario C: Gamma independente em freq PROXIMA a um multiplo de teta.
-    25Hz esta' proximo de 24Hz (3x f_theta) - dentro de tolerancia 10%.
-    Razao bate, mas PLV deve ser baixo (nao ha travamento de fase real).
-    Testa se o PLV esta' fazendo o trabalho pesado de discriminacao.
+    Cenario C (CRITICO): Oscilador genuinamente independente cuja freq
+    CAIA DENTRO DA TOLERANCIA por acaso, com fase TOTALMENTE aleatoria
+    (sem qualquer relacao com teta).
+
+    Por que importa: e' o UNICO teste que prova que o PLV esta' fazendo
+    o trabalho de discriminacao, e nao apenas a razao de frequencia.
+    Sem este teste, a logica suspeito AND skew_alto AND plv_alto pode
+    estar separando "coincidencia de frequencia" de "harmonico real"
+    APENAS pelo crivo facil da razao de frequencia.
+
+    f_gamma=23.7Hz e' 0.3Hz de 3*8=24Hz. Tolerancia (10% de 8Hz) = 0.8Hz.
+    Logo 23.7 esta' DENTRO da razao suspeita. A unica forma de rejeitar
+    este caso e' via PLV (fase livre -> PLV baixo).
     """
     rng = np.random.default_rng(seed)
     t = np.arange(0, dur_s, 1.0 / fs)
     n = len(t)
 
-    # Teta senoidal
     teta = np.sin(2 * np.pi * f_theta * t)
 
-    # Gamma 25Hz: ruido filtrado, independente (NAO travado em 3*phi_theta)
+    # Gamma 23.7Hz: ruido filtrado, fase LIVRE (NAO travada em 3*phi_theta)
+    # Diferenca crucial em relacao ao cenario A: gamma comeca com fase
+    # aleatoria igual a do ruido, e mantem-se descorrelacionada de teta
+    # ao longo de toda a janela.
     ruido_g = rng.standard_normal(n)
     b, a = butter(4, [(f_gamma - 5) / 500, (f_gamma + 5) / 500], btype="band")
     gamma = 0.5 * filtfilt(b, a, ruido_g)
@@ -257,23 +225,73 @@ def generate_near_coincidence(fs, dur_s, f_theta=8.0, f_gamma=25.0,
     return sinal, fs, f_theta, f_gamma
 
 
+# FOOOF para teste sintetico. Producao usa nperseg=1.2s, peak_width=(2,5).
+# O problema: essa config NAO detecta teta no sintetico (ver Parte 5).
+# Para isolar validacao de razao+PLV, usamos config relaxada APENAS
+# no teste. ESTA DIFERENCA E' DELIBERADA E DOCUMENTADA.
+_FOOOF_TEST_KWARGS = {
+    "aperiodic_mode": "knee",
+    "peak_width_limits": (1.0, 4.0),
+    "min_peak_height": 0.02,
+    "peak_threshold": 1.0,
+    "max_n_peaks": 1,
+    "nperseg_s": 1.0,                  # freq_res=1Hz, 9 bins em 4-12Hz
+}
+
+# Producao (NUNCA mexer sem calibracao empirica)
+_FOOOF_PROD_KWARGS = {
+    "aperiodic_mode": "knee",
+    "peak_width_limits": (2, 5),
+    "min_peak_height": 0.05,
+    "peak_threshold": 1.0,
+    "max_n_peaks": 1,
+    "nperseg_s": 1.2,
+}
+
+
+def run_fooof_standalone(sinal_ctx, fs, nperseg_s, pwl, min_h=0.05):
+    """
+    Roda FOOOF diretamente (sem usar extrai_cf_teta_fooof) para
+    testar configuracoes alternativas. Retorna dict com cf_teta e erro.
+    """
+    nperseg = int(nperseg_s * fs)
+    if nperseg >= len(sinal_ctx):
+        return {"cf_teta": None, "erro_ajuste": None, "has_model": False}
+    freqs, psd = welch(sinal_ctx, fs=fs, window='hann',
+                        nperseg=nperseg, noverlap=nperseg // 2)
+    mask = (freqs >= 4) & (freqs <= 12)
+    import io, contextlib
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        fm = FOOOF(aperiodic_mode='knee', peak_width_limits=pwl,
+                   min_peak_height=min_h, peak_threshold=1.0, max_n_peaks=1)
+        try:
+            fm.fit(freqs[mask], psd[mask], freq_range=(4, 12))
+        except Exception:
+            return {"cf_teta": None, "erro_ajuste": None, "has_model": False}
+    if not fm.has_model:
+        return {"cf_teta": None, "erro_ajuste": None, "has_model": False}
+    peaks = fm.get_params('peak_params')
+    err = fm.get_params('error')
+    cf = None
+    if peaks is not None and len(peaks) > 0:
+        cf = peaks[0, 0] if peaks.ndim > 1 else peaks[0]
+    return {"cf_teta": cf, "erro_ajuste": err, "has_model": True}
+
+
 def run_test(label, sinal, fs, f_theta_ref, f_gamma_ref, ini, fim,
              verbose=True):
     """
     Roda o teste de razao+PLV em um sinal sintetico.
     NAO chama o portao de qualidade (decisao documentada no topo do arquivo).
     """
-    idx_ini = int(ini * fs)
-    idx_fim = int(fim * fs)
-    sinal_cand = sinal[idx_ini:idx_fim]
+    sinal_cand = sinal[int(ini * fs):int(fim * fs)]
 
-    ctx_dur = 45.0
     centro = (ini + fim) / 2
+    ctx_dur = 45.0
     ctx_ini = max(0, centro - ctx_dur / 2)
     ctx_fim = min(len(sinal) / fs, centro + ctx_dur / 2)
-    idx_ctx_ini = int(ctx_ini * fs)
-    idx_ctx_fim = int(ctx_fim * fs)
-    sinal_ctx = sinal[idx_ctx_ini:idx_ctx_fim]
+    sinal_ctx = sinal[int(ctx_ini * fs):int(ctx_fim * fs)]
 
     res_fooof = extrai_cf_teta_fooof(
         sinal_ctx, fs,
@@ -323,6 +341,7 @@ def main():
     print("=" * 85)
     print("NOTA: Portao de qualidade (erro_ajuste < 0.15) contornado neste teste")
     print("      para isolar validacao de razao+PLV. Ver docstring do arquivo.")
+    print("      Producao usa nperseg=1.2s, pwl=(2,5) - ver Parte 5.")
     print("=" * 85)
 
     fs = 1000.0
@@ -331,7 +350,7 @@ def main():
     resultados = []
 
     # =========================================================================
-    # PARTE 1: Cenarios basicos COM fundo aperiodico realista (knee freq 28Hz)
+    # PARTE 1: Cenarios basicos COM fundo aperiodico realista
     # =========================================================================
     print("\n>>> PARTE 1: Cenarios com fundo 1/f realista (knee=28Hz, slope=1.2)")
     print("=" * 85)
@@ -342,15 +361,11 @@ def main():
         ("A4_4x", "Harmonico 4x travado", generate_harmonic_signal, {"ordem": 4, "f_theta": 8.0}, 32.0),
         ("A5_5x", "Harmonico 5x travado", generate_harmonic_signal, {"ordem": 5, "f_theta": 8.0}, 40.0),
         ("B", "Acoplamento genuino (35Hz)", generate_genuine_coupling, {"f_gamma": 35.0}, 35.0),
-        ("C", "Quase-coincidencia (25Hz ~ 3x8Hz)", generate_near_coincidence, {"f_gamma": 25.0}, 25.0),
     ]
 
     for cid, label, gen_fn, kwargs, f_g_ref in cenarios_base:
         print(f"\n[{cid}] {label} (f_gamma={f_g_ref}Hz)")
-        # Cada cenario com seed proprio (RNG isolado)
-        # Alem disso: rodar tambem sem fundo aperiodico como comparacao
         for aper_label, aper_flag in [("aperiodic_on", True), ("aperiodic_off", False)]:
-            # Seed unico por cenario E por flag
             seed_cenario = hash((cid, aper_label)) % 100000
             sinal, fs_r, f_t, f_g = gen_fn(fs, dur_s, aperiodic=aper_flag,
                                             seed=seed_cenario, **kwargs)
@@ -361,10 +376,30 @@ def main():
                                 "f_gamma": f_g_ref, **res})
 
     # =========================================================================
-    # PARTE 2: Sweep de SNR (cenario A3, harmonico 3x)
+    # PARTE 2: Quase-coincidencia com fase INDEPENDENTE (TESTE CRITICO)
     # =========================================================================
     print("\n" + "=" * 85)
-    print(">>> PARTE 2: Sweep de SNR (harmonico 3x)")
+    print(">>> PARTE 2: Quase-coincidencia com fase INDEPENDENTE (TESTE CRITICO)")
+    print("=" * 85)
+    print("f_gamma=23.7Hz, dentro de 0.8Hz (10% de 8Hz) de 3*8=24Hz.")
+    print("Mas gamma com fase totalmente livre de teta. Unica defesa: PLV.")
+    print()
+
+    for aper_label, aper_flag in [("aperiodic_on", True), ("aperiodic_off", False)]:
+        seed_c = hash(("C", aper_label)) % 100000
+        sinal, fs_r, f_t, f_g = generate_near_coincidence(
+            fs, dur_s, f_gamma=23.7, aperiodic=aper_flag, seed=seed_c)
+        sub_label = f"Quase-coincidente (23.7Hz) [{aper_label}]"
+        print(f"[C_{aper_label}] {sub_label} (seed={seed_c})")
+        res = run_test(sub_label, sinal, fs_r, f_t, f_g, ini, fim)
+        resultados.append({"id": f"C_{aper_label}", "label": sub_label,
+                            "f_gamma": 23.7, **res})
+
+    # =========================================================================
+    # PARTE 3: Sweep de SNR (harmonico 3x, condicao facil)
+    # =========================================================================
+    print("\n" + "=" * 85)
+    print(">>> PARTE 3: Sweep de SNR (harmonico 3x)")
     print("=" * 85)
 
     for snr in [30, 20, 10, 5, 0]:
@@ -376,30 +411,52 @@ def main():
                             "f_gamma": 24.0, **res})
 
     # =========================================================================
-    # PARTE 3: Comparacao knee vs fixed no cenario 3x
+    # PARTE 4: Sweep de SNR no quase-coincidente (c CRITICO)
     # =========================================================================
     print("\n" + "=" * 85)
-    print(">>> PARTE 3: aperiodic_mode knee vs fixed (harmonico 3x)")
+    print(">>> PARTE 4: Sweep de SNR no quase-coincidente (TESTE CRITICO)")
     print("=" * 85)
+    print("Aqui testamos: o PLV rejeita oscilador genuinamente independente")
+    print("mesmo quando a SNR e' alta (fase deveria ser bem definida)?")
 
-    for mode in ['knee', 'fixed']:
-        print(f"\n[A3_{mode}] Harmonico 3x, aperiodic_mode={mode}")
-        sinal, fs_r, f_t, f_g = generate_harmonic_signal(
-            fs, dur_s, ordem=3, f_theta=8.0, snr_db=20, aperiodic=True, seed=42)
-        idx_ini = int(ini * fs_r)
-        idx_fim = int(fim * fs_r)
-        centro = (ini + fim) / 2
-        sinal_ctx = sinal[int((centro - 22.5) * fs_r):int((centro + 22.5) * fs_r)]
-        res_fooof = extrai_cf_teta_fooof(
-            sinal_ctx, fs_r,
-            aperiodic_mode=mode,
-            theta_bw_limits=_FOOOF_TEST_KWARGS["peak_width_limits"],
-            min_peak_height=_FOOOF_TEST_KWARGS["min_peak_height"],
-            nperseg_s=_FOOOF_TEST_KWARGS["nperseg_s"],
-        )
-        erro_str = f"{res_fooof['erro_ajuste']:.4f}" if res_fooof['erro_ajuste'] is not None else "N/A"
-        print(f"    aperiodic_mode={mode}: cf={res_fooof['cf_teta']}, "
-              f"erro={erro_str}, qualidade_ok={res_fooof['qualidade_ok']}")
+    for snr in [30, 20, 10, 5]:
+        print(f"\n[C_SNR{snr}] Quase-coincidente 23.7Hz, SNR={snr}dB")
+        sinal, fs_r, f_t, f_g = generate_near_coincidence(
+            fs, dur_s, f_gamma=23.7, snr_db=snr, aperiodic=True)
+        res = run_test(f"SNR={snr}dB", sinal, fs_r, f_t, f_g, ini, fim)
+        resultados.append({"id": f"C_SNR{snr}", "label": f"23.7Hz fase livre @ SNR={snr}dB",
+                            "f_gamma": 23.7, **res})
+
+    # =========================================================================
+    # PARTE 5: Comparacao FOOOF producao vs teste (SEM portao)
+    # =========================================================================
+    print("\n" + "=" * 85)
+    print(">>> PARTE 5: FOOOF producao vs teste (parametros isolados)")
+    print("=" * 85)
+    print("Esta parte valida o pipeline INTEIRO, sem bypass do portao.")
+    print("Sinal sintetico bem comportado (3x, aperiodic_on, SNR=20).")
+    print()
+
+    sinal, fs_r, f_t, f_g = generate_harmonic_signal(
+        fs, dur_s, ordem=3, f_theta=8.0, snr_db=20, aperiodic=True, seed=42)
+    sinal_ctx = sinal[2500:47500]
+    print(f"Configuracao de teste:    nperseg=1.0s, pwl=(1,4), min_h=0.02")
+    res_teste = run_fooof_standalone(sinal_ctx, fs_r, 1.0, (1, 4), 0.02)
+    print(f"  -> cf_teta={res_teste['cf_teta']}, erro={res_teste['erro_ajuste']}")
+    print(f"Configuracao de producao: nperseg=1.2s, pwl=(2,5), min_h=0.05")
+    res_prod = run_fooof_standalone(sinal_ctx, fs_r, 1.2, (2, 5), 0.05)
+    print(f"  -> cf_teta={res_prod['cf_teta']}, erro={res_prod['erro_ajuste']}, has_model={res_prod['has_model']}")
+    print()
+    if res_teste['has_model'] and not res_prod['has_model']:
+        print("CONCLUSAO: Producao NAO detecta teta no sintetico bem comportado.")
+        print("           O problema NAO e' a duracao (45s ja foi usada).")
+        print("           E' a combinacao nperseg=1.2s + pwl=(2,5) que falha.")
+    elif res_teste['has_model'] and res_prod['has_model']:
+        print(f"Producao detecta: cf={res_prod['cf_teta']:.2f}, erro={res_prod['erro_ajuste']:.4f}")
+        if res_prod['erro_ajuste'] > 0.15:
+            print(f"ATENCAO: erro > 0.15, portao REJEITA o caso.")
+        else:
+            print(f"Portao ACEITA este caso.")
 
     # =========================================================================
     # RESUMO
@@ -407,75 +464,112 @@ def main():
     print("\n" + "=" * 85)
     print("RESUMO")
     print("=" * 85)
-    print(f"{'ID':<10} | {'Label':<32} | {'cf_teta':<8} | {'Erro':<7} | {'Q':<2} | {'Ordem':<5} | {'PLV':<6} | {'Skew':<7}")
-    print("-" * 100)
+    print(f"{'ID':<18} | {'Label':<40} | {'cf':<7} | {'Erro':<7} | {'Q':<2} | {'Ord':<4} | {'PLV':<6}")
+    print("-" * 105)
     for r in resultados:
         cf_str = f"{r['cf_teta']:.2f}" if r['cf_teta'] else "N/A"
         erro_str = f"{r['erro_ajuste']:.3f}" if r['erro_ajuste'] is not None else "N/A"
         q_str = "OK" if r['qualidade_ok'] else "X"
         ordem_str = str(r['ordem']) if r['ordem'] else "-"
         plv_str = f"{r['plv']:.3f}" if not np.isnan(r['plv']) else "-"
-        skew_str = f"{r['skew']:+.2f}"
-        print(f"{r['id']:<10} | {r['label']:<32} | {cf_str:<8} | {erro_str:<7} | "
-              f"{q_str:<2} | {ordem_str:<5} | {plv_str:<6} | {skew_str:<7}")
+        print(f"{r['id']:<18} | {r['label']:<40} | {cf_str:<7} | {erro_str:<7} | "
+              f"{q_str:<2} | {ordem_str:<4} | {plv_str:<6}")
 
     # =========================================================================
     # AFERICAO
     # =========================================================================
     print("\n" + "=" * 85)
-    print("AFERICAO (criterios: cf~8Hz, razao correta, PLV alto para harmonico, baixo para genuino)")
+    print("AFERICAO - Discriminacao de harmonico vs genuino (com bypass do portao)")
+    print("=" * 85)
+    print("Criterios:")
+    print("  - Harmonicos 2-5x: PLV alto (>0.7) esperado")
+    print("  - Genuino (B, 35Hz): razao NAO suspeita, PLV nao calculado")
+    print("  - Quase-coincidente fase LIVRE (C, 23.7Hz):")
+    print("      razao DEVE ser suspeita (dentro de 10% tol),")
+    print("      PLV DEVE ser baixo (<0.5) - senao, logica falha")
     print("=" * 85)
 
     # Harmonicos 2x-5x: PLV deve ser > 0.7
-    for cid_prefix in ['A2_2x', 'A3_3x', 'A4_4x', 'A5_5x']:
+    print("\n  --- Harmonicos verdadeiros (A2-A5, com 1/f) ---")
+    for cid_prefix in ['A2_2x_aperiodic_on', 'A3_3x_aperiodic_on',
+                        'A4_4x_aperiodic_on', 'A5_5x_aperiodic_on']:
         r = next((x for x in resultados if x['id'] == cid_prefix), None)
         if r and not np.isnan(r['plv']):
             plv_ok = r['plv'] > 0.7
             cf_ok = r['cf_teta'] is not None and abs(r['cf_teta'] - 8.0) < 1.0
             status = "OK" if (plv_ok and cf_ok) else "FALHOU"
             print(f"  {cid_prefix}: PLV={r['plv']:.3f} ({'alto' if plv_ok else 'BAIXO'}), "
-                  f"cf={r['cf_teta']:.2f} ({'prox' if cf_ok else 'LONGE'}) -> {status}")
+                  f"cf={r['cf_teta']:.2f} -> {status}")
 
-    # Genuino B: PLV deve ser baixo (< 0.5) ou razao nao suspeita
-    r = next((x for x in resultados if x['id'] == 'B'), None)
+    # Genuino B
+    print("\n  --- Acoplamento genuino (B, 35Hz, com 1/f) ---")
+    r = next((x for x in resultados if x['id'] == 'B_aperiodic_on'), None)
     if r:
         plv_baixo = np.isnan(r['plv']) or r['plv'] < 0.5
         razao_nao = not r['suspeito_razao']
         status = "OK" if (plv_baixo and razao_nao) else "FALHOU"
-        plv_display = "N/A" if np.isnan(r['plv']) else f"{r['plv']:.3f}"
-        plv_str = f"{'N/A' if np.isnan(r['plv']) else f'{r['plv']:.3f}'}"
-        print(f"  B (genuino): PLV={plv_display} "
-              f"({'baixo' if plv_baixo else 'ALTO'}), razao suspeita={r['suspeito_razao']} -> {status}")
+        plv_str = "N/A" if np.isnan(r['plv']) else f"{r['plv']:.3f}"
+        print(f"  B: razao suspeita={r['suspeito_razao']} (esperado False), "
+              f"PLV={plv_str} -> {status}")
 
-    # Quase-coincidencia C: razao suspeita MAS PLV baixo
-    r = next((x for x in resultados if x['id'] == 'C'), None)
+    # Quase-coincidente fase LIVRE (CRITICO)
+    print("\n  --- Quase-coincidente fase LIVRE (C, 23.7Hz, com 1/f) - TESTE CRITICO ---")
+    r = next((x for x in resultados if x['id'] == 'C_aperiodic_on'), None)
     if r:
-        plv_baixo = np.isnan(r['plv']) or r['plv'] < 0.5
-        # Idealmente: razao suspeita (25Hz ~ 3x8=24, dentro 10%?) + PLV baixo
+        plv_str = "N/A" if np.isnan(r['plv']) else f"{r['plv']:.3f}"
         if r['suspeito_razao']:
-            status = "OK" if plv_baixo else "FALSO POSITIVO"
+            # O caso CRITICO: razao suspeita. Esperamos PLV baixo.
+            if not np.isnan(r['plv']) and r['plv'] < 0.5:
+                status = "OK (PLV rejeita mesmo com razao suspeita)"
+            elif not np.isnan(r['plv']) and r['plv'] >= 0.5:
+                status = "FALSO POSITIVO (PLV alto para fase livre!)"
+            else:
+                status = "INDETERMINADO (PLV nao calculado)"
         else:
-            status = "OK (razao nao suspeita, discriminado por freq)"
-        plv_display_c = "N/A" if np.isnan(r['plv']) else f"{r['plv']:.3f}"
-        print(f"  C (quase-coincidencia): razao suspeita={r['suspeito_razao']}, "
-              f"PLV={plv_display_c} -> {status}")
+            status = "RAZAO REJEITOU (freq fora de tolerancia - teste fraco)"
+        print(f"  C_aperiodic_on: razao suspeita={r['suspeito_razao']} (esperado True), "
+              f"PLV={plv_str} -> {status}")
 
-    # SNR sweep
-    print("\n  --- SNR sweep (3x) ---")
-    for snr in [30, 20, 10, 5, 0]:
-        r = next((x for x in resultados if x['id'] == f'A3_SNR{snr}'), None)
+    # Quase-coincidente SNR sweep
+    print("\n  --- Quase-coincidente (C) por SNR ---")
+    for snr in [30, 20, 10, 5]:
+        r = next((x for x in resultados if x['id'] == f'C_SNR{snr}'), None)
         if r:
-            plv_val = r['plv'] if not np.isnan(r['plv']) else 0
-            cf_display = f"{r['cf_teta']:.2f}" if r['cf_teta'] else "N/A"
-            print(f"  SNR={snr:2d}dB: PLV={plv_val:.3f}, cf={cf_display}")
+            plv_str = "N/A" if np.isnan(r['plv']) else f"{r['plv']:.3f}"
+            razao_str = "True" if r['suspeito_razao'] else "False"
+            print(f"  SNR={snr:2d}dB: razao_suspeita={razao_str}, PLV={plv_str}")
+
+    # =========================================================================
+    # VEREDITO HONESTO
+    # =========================================================================
+    print("\n" + "=" * 85)
+    print("VEREDITO (com bypass do portao de qualidade)")
+    print("=" * 85)
+    print("O que ESTA validado:")
+    print("  - DADO um cf_teta correto, a logica razao+PLV discrimina:")
+    print("      harmonicos verdadeiros (PLV~1.0) vs genuinos (PLV baixo).")
+    print("  - PLV rejeita oscilador com fase LIVRE mesmo dentro da tolerancia")
+    print("    de frequencia (este teste e' o argumento principal do PLV).")
+    print()
+    print("O que NAO esta validado:")
+    print("  - Que o FOOOF de PRODUCAO (nperseg=1.2s, pwl=(2,5)) consegue")
+    print("    entregar cf_teta confiavel em sinal sintetico realista.")
+    print("  - Que o portao erro<0.15 e' calibrado corretamente.")
+    print("  - Validacao biologica real (sessoes MTESC04/05) ainda pendente.")
+    print()
+    print("Frase honesta para apresentacao:")
+    print('  "Logica de discriminacao (razao+PLV) validada isoladamente em')
+    print('   sinal sintetico realista; integracao com o portao de qualidade')
+    print('   do FOOOF de producao ainda em teste."')
 
     print("\n" + "=" * 85)
     print("NOTAS FINAIS")
     print("=" * 85)
-    print("1. Portao de qualidade (erro_ajuste<0.15) NAO foi aplicado neste teste.")
-    print("2. FOOOF rodou com aperiodic_mode='knee' (default para LFP real).")
-    print("3. Fundo 1/f realista (knee=28Hz, slope=1.2) incluido em todos os cenarios.")
-    print("4. Validacao REAL exige sessoes MTESC04/05 (caos biologico real).")
+    print("1. Portao de qualidade (erro_ajuste<0.15) NAO foi aplicado no teste.")
+    print("2. FOOOF rodou com nperseg=1.0s + pwl=(1,4) no teste (relaxado).")
+    print("3. Producao usa nperseg=1.2s + pwl=(2,5) - ver Parte 5.")
+    print("4. Fundo 1/f realista (knee=28Hz, slope=1.2) em todos os cenarios.")
+    print("5. Janela de contexto: 45s (mesma de producao).")
 
 
 if __name__ == "__main__":

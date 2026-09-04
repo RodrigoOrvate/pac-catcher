@@ -69,10 +69,20 @@ from audita_skewness import theta_skewness_for_window  # REUSO, nao duplicacao
 def extrai_cf_teta_fooof(sinal, fs, theta_range=(4, 12),
                           theta_cf_bounds=(5, 9.5), theta_bw_limits=(2, 5),
                           min_peak_height=0.05, nperseg_s=1.2,
-                          aperiodic_mode='fixed'):
+                          aperiodic_mode='knee'):
     """
-    Estima a frequencia central (cf) de teta via FOOOF (Kuhn et al. 2026).
-    Usa aperiodic_mode='knee' (aproximacao flat+1exp).
+    Estima a frequencia central (cf) de teta via FOOOF (metodo modificado
+    de Kuhn et al. 2026, LFP_FOOOF).
+
+    Ajusta o componente aperiodico (1/f) e restringe a deteccao a UMA
+    Gaussiana na banda teta (4-12 Hz), com cf limitado a 5-9.5 Hz.
+
+    IMPORTANTE sobre aperiodic_mode:
+        Default = 'knee' porque LFP real de CA1/DG tem 'knee frequency'
+        real (~28 Hz em CA1, ~70 Hz em DG segundo Kuhn et al. 2026).
+        'fixed' so deve ser usado em sinais sem componente 1/f ou em
+        testes sinteticos com estrutura simples. A escolha de 'fixed'
+        baseada em teste sintetico isolado NAO generaliza para LFP real.
     """
     nperseg = int(nperseg_s * fs)
     freqs, psd = welch(sinal, fs=fs, window='hann',

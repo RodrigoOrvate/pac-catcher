@@ -85,8 +85,15 @@ def extrai_cf_teta_fooof(sinal, fs, theta_range=(4, 12),
         baseada em teste sintetico isolado NAO generaliza para LFP real.
     """
     nperseg = int(nperseg_s * fs)
+    # nfft=4000 (zero-padding): segue Kuhn et al. 2026 (LFP_FOOOF).
+    # Welch ainda janelado em 1.2s (resolução estatística real do espectro),
+    # mas FFT em 4000 pontos interpola o espectro para grade fina
+    # (~0.25 Hz/bin), dando ao FOOOF pontos suficientes para convergir
+    # em Gaussiana de 2-5 Hz sem instabilidade numérica.
+    nfft = 4000 if nperseg <= 4000 else nperseg
     freqs, psd = welch(sinal, fs=fs, window='hann',
-                        nperseg=nperseg, noverlap=nperseg // 2)
+                        nperseg=nperseg, noverlap=nperseg // 2,
+                        nfft=nfft)
 
     fm = FOOOF(aperiodic_mode=aperiodic_mode, peak_width_limits=theta_bw_limits,
                min_peak_height=min_peak_height, peak_threshold=1.0,

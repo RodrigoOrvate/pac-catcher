@@ -20,6 +20,29 @@ ainda seria SEM_REFERENCIA_TETA. Os valores de PLV/ordem mostrados
 neste teste sao "se o cf fosse aceito, discriminaria?".
 
 ==========================================================================
+POR QUE PLV=0.5 NESTE TESTE vs PLV=0.8 EM PRODUCAO
+==========================================================================
+O default de audita_harmonico.py (--limiar_plv) e' 0.8. Este teste
+isolado usa 0.5 propositalmente por duas razoes:
+
+1. **Margem contra falso-negativo no teste de quase-coincidencia**:
+   o caso C (gamma=23.7Hz, 3*theta=24Hz, |delta|=0.3Hz dentro da
+   tolerancia 0.8Hz) tem fase LIVRE de teta. Esperamos PLV bem abaixo
+   de 0.8 (0.327 medido). Usar 0.5 da margem: a tendencia esperada
+   do caso LIVRE e' PLV em 0.2-0.4; PLV > 0.5 nesse cenario seria
+   sinal claro de falha de discriminacao.
+
+2. **Cobertura da "banda de incerteza"**: PLV entre 0.5 e 0.8 e' zona
+   cinza (acoplamento genuino fraco pode cair aqui). No teste queremos
+   garantir que a logica discrimina claramente em PLVs modestos
+   (0.3-0.5); em producao aceitamos so PLVs fortes (>0.8) para nao
+   rotular como harmonico um acoplamento genuino marginal.
+
+Em resumo: o teste pergunta "a logica discrimina?" (sensibilidade);
+a producao pergunta "e' harmonico confiavel?" (especificidade).
+Escopos diferentes -> limiares diferentes -> justificado.
+
+==========================================================================
 Cenarios testados (versao expandida)
 ==========================================================================
 A) Harmonico em multiplas ordens (2x, 3x, 4x, 5x) com fase travada
@@ -253,12 +276,20 @@ def run_fooof_standalone(sinal_ctx, fs, nperseg_s, pwl, min_h=0.05):
     """
     Roda FOOOF diretamente (sem usar extrai_cf_teta_fooof) para
     testar configuracoes alternativas. Retorna dict com cf_teta e erro.
+
+    IMPORTANTE: usa nfft=4000 (zero-padding) seguindo Kuhn et al. 2026
+    (LFP_FOOOF). Sem isso, a config de producao (nperseg=1.2s, pwl=(2,5))
+    NAO detecta teta em sinal sintetico realista por instabilidade numerica
+    do Welch (grade de frequencia com 0.83 Hz/bin).
     """
     nperseg = int(nperseg_s * fs)
     if nperseg >= len(sinal_ctx):
         return {"cf_teta": None, "erro_ajuste": None, "has_model": False}
+    # nfft=4000 (zero-padding): mesma logica de audita_harmonico.py
+    nfft = 4000 if nperseg <= 4000 else nperseg
     freqs, psd = welch(sinal_ctx, fs=fs, window='hann',
-                        nperseg=nperseg, noverlap=nperseg // 2)
+                        nperseg=nperseg, noverlap=nperseg // 2,
+                        nfft=nfft)
     mask = (freqs >= 4) & (freqs <= 12)
     import io, contextlib
     buf = io.StringIO()
@@ -552,15 +583,27 @@ def main():
     print("    de frequencia (este teste e' o argumento principal do PLV).")
     print()
     print("O que NAO esta validado:")
-    print("  - Que o FOOOF de PRODUCAO (nperseg=1.2s, pwl=(2,5)) consegue")
-    print("    entregar cf_teta confiavel em sinal sintetico realista.")
-    print("  - Que o portao erro<0.15 e' calibrado corretamente.")
+    print("  - Que o portao erro<0.15 e' calibrado corretamente: a PARTE 5")
+    print("    mostra que o FOOOF de producao AGORA detecta teta no sintetico")
+    print("    bem-comportado (cf=7.99, erro=0.18, has_model=True) APOS a")
+    print("    correcao nfft=4000. Porem, o limiar 0.15 ainda REJEITA o caso")
+    print("    ideal (erro=0.18 > 0.15). Calibragem empirica em LFP real")
+    print("    ainda e' pendente.")
     print("  - Validacao biologica real (sessoes MTESC04/05) ainda pendente.")
     print()
-    print("Frase honesta para apresentacao:")
-    print('  "Logica de discriminacao (razao+PLV) validada isoladamente em')
-    print('   sinal sintetico realista; integracao com o portao de qualidade')
-    print('   do FOOOF de producao ainda em teste."')
+    print("Frase honesta para apresentacao (atualizada 04/09/2026):")
+    print('  "A logica de discriminacao (razao + PLV) foi validada no cenario')
+    print('   mais dificil: um oscilador com fase livre cuja frequencia cai por')
+    print('   acaso dentro da tolerancia harmonica (gamma=23.7Hz vs 3*teta=24Hz,')
+    print('   |delta|=0.3Hz dentro de 0.8Hz de tolerancia) foi corretamente')
+    print('   rejeitado, com PLV~0.30 contra um limiar de 0.5.')
+    print('   A integracao com o portao de qualidade do FOOOF de producao esta')
+    print('   em ajuste final - identificamos que nossa implementacao do Welch')
+    print('   nao replicava o nfft=4000 usado no artigo original de Kuhn et al.')
+    print('   2026, e a correcao restaura a deteccao de teta em sinal sintetico')
+    print('   realista (cf=7.99, erro=0.18, has_model=True).')
+    print('   Falta calibrar empiricamente o limiar do portao de qualidade')
+    print('   (erro < 0.15) em sessoes reais."')
 
     print("\n" + "=" * 85)
     print("NOTAS FINAIS")
@@ -570,6 +613,8 @@ def main():
     print("3. Producao usa nperseg=1.2s + pwl=(2,5) - ver Parte 5.")
     print("4. Fundo 1/f realista (knee=28Hz, slope=1.2) em todos os cenarios.")
     print("5. Janela de contexto: 45s (mesma de producao).")
+    print("6. Welch usa nfft=4000 (zero-padding, Kuhn et al. 2026) - producao")
+    print("   e teste agora convergem na deteccao de teta em sinal sintetico.")
 
 
 if __name__ == "__main__":

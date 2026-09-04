@@ -25,3 +25,11 @@ Este documento detalha erros críticos de integridade identificados durante a ge
 ---
 **Objetivo**: Evitar que a integridade científica do estudo seja questionada por erros de formatação ou pareamento de dados.
 **Ação**: Revisar os scripts de consolidação de CSV para incluir validações de unicidade e sincronia numérica antes de disparar o gerador de PDF.
+=== RESULTADO DO TESTE SINTETICO ===
+
+Cenario A (Harmonico): PLV=0.991, ordem=3x, cf_fooof=7.98Hz -> PASSOU
+Cenario B (Genuino): PLV=N/A, ordem=N/A, cf_fooof=7.98Hz -> PASSOU
+Nota: limiar erro_ajuste=0.15 rejeitou sinais sinteticos (erro=0.2589).
+Nota: PLV com bw=2Hz funciona corretamente (antes 0.5Hz dava PLV=0.078)
+Nota: Tolerancia relativa (10% de f_theta) melhor que fixa 1.5Hz
+Nota: Nenhum filtro automatico aplicado - auditoria rotula, nao exclui

@@ -384,7 +384,41 @@ robusto é z≈4 durante o grooming puro.
 
 ---
 
-## 11. `ns2_utils.py` — Utilitários compartilhados
+## 12. `audita_harmonico.py` — Teste de razão harmônica (auditoria)
+
+**O que faz:** Complementa a `audita_skewness.py`. Em vez de olhar apenas a forma de onda, usa o **FOOOF modificado (Kühn et al. 2026)** para estimar a frequência central (cf) do teta em uma janela de contexto longa (default 45 s) e verifica se a amplitude do gama é um múltiplo inteiro (harmônico) desse teta.
+
+**Por que daquela forma:** Teta não-senoidal gera harmônicos naturais. Se `amp_pico ≈ n * cf_teta` (ex: 8Hz teta → 16Hz, 24Hz gamma), o acoplamento pode ser um artefato da própria forma de onda do teta e não um processo neural distinto. A separação entre janela de contexto (para estabilizar o FOOOF) e janela de candidato (para o PAC) evita que oscilações transitórias enviesem a referência.
+
+**Três dimensões independentes (rigor estatístico crescente):**
+1. **Frequência**: Razão inteira `amp/fase ≈ n` (tolerância relativa 10% de `cf_teta`)
+2. **Forma de onda**: Skewness do teta (reusado de `audita_skewness.py`)
+3. **Fase**: PLV entre `n*phi_theta` e `phi_gamma` (discriminador mais forte — harmônico matemático tem fase travada)
+
+**Veredito:**
+- `CLEAN` → todos os testes negativos
+- `REVISAR_RAZAO_INTEIRA` → só razão suspeita
+- `REVISAR_FASE_TRAVADA` → razão + PLV alto (sem skew) — possível harmônico mascarado
+- `SUSPEITO_HARMONICO_FORTE` → todos os testes positivos (3/3)
+- `SEM_REFERENCIA_TETA` → FOOOF não detectou teta com qualidade_ok
+
+**CLI:**
+```bash
+python audita_harmonico.py --csv "<sessao>/RESULTADOS/vencedores.csv" \\
+    --pasta_ns2 "<sessao>/<BASAL>" \\
+    --saida "<sessao>/RESULTADOS/harmonico.csv" \\
+    --janela_contexto_s 45
+```
+
+**Saída:** `harmonico.csv` (rotula cada vencedor com veredito, cf_teta, PLV, skewness).
+
+**Natureza:** Experimental. Requer calibração de limiares (erro de ajuste FOOOF, tolerância de Hz e tamanho de janela) contra dados reais. É um rótulo de auditoria, não um filtro automático.
+
+**Validação sintética** (test_synthetic_harmonico.py, 04/09/2026):
+- Cenário A (harmônico 3x travado): PLV=0.991, ordem=3 → discriminação correta
+- Cenário B (gamma independente 35Hz): PLV=N/A, razão não suspeita → discriminação correta
+- Limiar `erro_ajuste=0.15` rejeitou ambos (erro sintético=0.26) — confirmando que o chute precisa de calibração empírica.
+
 
 O que contém:
 - **`le_ns2(caminho_arquivo)`** — lê .ns2 via `neo.rawio.BlackrockRawIO`

@@ -5,9 +5,16 @@
 > (MTESC04/MTESC05 × NOCI/LAC). Nada de específico de sessão aqui
 > — caminhos, offsets e vencedores entram por CLI/CSV, nunca no código.
 
-## Visão geral do pipeline (7 passos)
+## Visão geral do pipeline (passo 0 + 7 passos)
 
 ```
+PASSO 0: exploracao_interativo.py (NOVO — PRIMEIRO, nao opcional)
+  → LFP dos 3 .ns2 juntos (concatena_sessao); navegacao assíncrona
+     (VisPy/Neuroglancer/Bqplot no Jupyter) em milhões de pontos
+  → visual: espectrograma + PSD + LFP bruto navegavel
+  → usuario marca instante interessante → carimbo (t_start, t_end, canal)
+     enviado ao pipeline por CLI/CSV — nao hardcoded
+
 triagem_pac.py          → etapa 1: varre TODAS as janelas (10 s / 5 s)
 refina_candidatos.py    → etapa 2: FDR de janela + filtros de artefato
 comodulogram.py         → etapa 3: mapas z-scoredos ±notch + FDR do mapa
@@ -285,6 +292,99 @@ canal, conforme convenção).
 
 **Depende de:** `vencedores.csv` (formato: `rotulo,arquivo,canal,
 inicio_s,fim_s,fase_pico_hz,amp_pico_hz[,comportamento]`).
+
+---
+
+## 0 (NOVO). `exploracao_interativo.py` — Passo 0: exploração visual em Jupyter
+
+**Arquitetura:** navegador assíncrono para milhões de pontos,
+integrado ao Jupyter. O pipeline canônico (etapas 1–7) varre
+**cego** — processa todas as janelas e devolve números. O passo 0
+inverte isso: o pesquisador **vê o sinal primeiro**, marca o que
+interessa, e só então o pipeline processa. O pipeline não acha
+acoplamento? Provavelmente a janela была errada — você viu o
+acoplamento no LFP e precisa informar o carimbo.
+
+**Tecnologia:** VisPy (CanvasSci, GPU-accelerated) ou Bqplot (d3.js
+no browser) — lidam com milhões de pontos sem travar, zoom livre,
+scroll, atualização em tempo real. Alternativa: Neuroglancer (se
+houver voxels 3D) ou painel MNE-Python com TimeSeriesViewer.
+**Não usar matplotlib estático para isso** — escala mal para registros
+longos.
+
+**Dados:** LFP dos 3 .ns2 juntos (já disponíveis em
+`concatena_sessao`). A navegação é sobre o **registro completo** da
+sessão, não sobre 1 min central.
+
+**Interface esperada:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  EXPLORAÇÃO — MTESC04 S1 (3 arquivos, 150 s, 32 canais)  │
+├─────────────┬──────────────────────────────┬───────────────┤
+│ CANAIS      │ LFP BRUTO (navegável, zoom)   │ ESPECTROGRAMA │
+│ (scroll/    │ Ver teta (4-8 Hz) como ondulação│ (freq vs t) │
+│  clique)    │ Ver gama (30-80 Hz) como    │   Teta ↑ quando│
+│             │   bursts modulados pelo teta│   gama bursts │
+│             │                              │               │
+├─────────────┴──────────────────────────────┴───────────────┤
+│  PSD (linear + log) por canal: ver picos em teta/gama    │
+├─────────────────────────────────────────────────────────────┤
+│  CONTROLES                                                  │
+│  [Marcar instante] → t_start = 47s, t_end = 57s, ch=5    │
+│  [Enviar para triagem] → executa triagem_pac.py nessa     │
+│     janela + canal, devolve z e FDR no terminal            │
+│  [Salvar carimbo] → adiciona linha ao candidatos.csv     │
+│                                                             │
+│  [Parar] → encerra, gera candidatos.csv com todos os     │
+│     carimbos marcados                                      │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Fluxo correto:**
+
+```
+1. open exploracao_interativo.ipynb (Jupyter Lab)
+2. carrega 3 .ns2 → concatena (concatena_sessao)
+3. navegacao: scroll pelo registro, zoom, escolha de canal
+4. ve teta (4-8 Hz) e gama (30-80 Hz) juntos?
+5. clica em "Marcar instante" → salva (t_start, t_end, canal)
+6. (opcional) clica em "Enviar para triagem" → recebe z + FDR
+   imediatamente na célula do Jupyter
+7. repete 4-6 para todos os instantes interessantes
+8. clica "Salvar carimbos" → gera candidatos.csv
+9. fecha notebook → inicia pipeline canônico com candidatos.csv
+```
+
+**Saída:**
+
+```
+candidatos.csv
+rotulo,t_start,t_end,canal,observacao
+ep1_rearing,47,57,5,"teta forte em 8Hz, gama em 70Hz"
+ep2_grooming,82,92,5,"teta moderada, bursts gama curtos"
+ep3_walking,110,120,16,"teta 6Hz, gama 50Hz"
+```
+
+Este arquivo alimenta `triagem_pac.py` (etapa 1) como alternativa à
+varredura cega — ele processa **só as janelas marcadas**, não toda a
+sessão.
+
+**CLI mínima (Jupyter):**
+
+```bash
+cd C:\acoplamento_theta-gamma\SCRIPT
+jupyter lab
+# abrir notebooks/exploracao_interativo.ipynb
+```
+
+**Depende de:** `ns2_utils.py` (leitura), VisPy ou Bqplot (instalar:
+`pip install bqplot` ou `pip install vispy`). MNE-Python já está no
+requirements.
+
+**Status:** a ser implementado (script atual `comodulogram_interativo.py`
+é o protótipo estático; reescrever como Jupyter + VisPy/Bqplot é o
+próximo passo).
 
 ---
 

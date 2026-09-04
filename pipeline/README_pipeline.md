@@ -264,3 +264,61 @@ Um acoplamento só é "VALIDADO" com **todas**:
   para evitar circularidade (regra: energia theta máxima, não MI máximo).
 - **Integer ratio check:** razão amp/fase inteira (ex: 5×35, 5×45) pode indicar
   theta não-senoidal gerando MI espúrio; checar skewness do theta filtrado.
+
+## PASSO 0 — Exploração visual interativa (antes de tudo)
+
+**Primeiro: o pipeline canônico é cego.** A etapa 1 varre todas as
+janelas e devolve números, mas você não viu o sinal. Se o pipeline
+não acha acoplamento, talvez a janela была errada — você viu
+acoplamento no LFP e precisa informar o carimbo.
+
+**Ferramenta:** `exploracao_interativo.py` rodando no **Jupyter Lab**
+com **VisPy** (GPU-accelerated) ou **Bqplot** (d3.js). Navegação
+assíncrona em milhões de pontos sem travar. **Não é matplotlib
+estático.**
+
+**O que você vê:**
+- LFP bruto dos **3 .ns2 juntos** (registro completo, não 1 min)
+- Navegação livre: scroll temporal, zoom, escolha de canal
+- Você olha diretamente: **teta como ondulação em 4–8 Hz**,
+  **gama como bursts rápidos modulados pelo teta**
+- Espectrograma: energia em freq×tempo
+- PSD por canal: picos em teta? em gama?
+
+**Fluxo:**
+```
+1. jupyter lab → abre notebooks/exploracao_interativo.ipynb
+2. carrega 3 .ns2 → concatena (concatena_sessao)
+3. navega pelo registro: scroll, zoom, escolhe canal
+4. về teta + gama juntos no LFP?
+5. clica em "Marcar instante" → salva (t_start, t_end, canal)
+6. (opcional) "Enviar para triagem" → recebe z+FDR imediatamente
+7. repete para todos os instantes
+8. "Salvar carimbos" → gera candidatos.csv
+9. inicia pipeline canônico com candidatos.csv
+```
+
+**Saída (candidatos.csv):**
+
+```
+rotulo,t_start,t_end,canal,observacao
+ep1_rearing,47,57,5,"teta 8Hz forte, gama 70Hz"
+ep2_grooming,82,92,5,"teta moderada, bursts gama curtos"
+```
+
+Este arquivo alimenta `triagem_pac.py` (etapa 1) — ele processa **só
+as janelas marcadas**, não toda a sessão. Alternativa: varredura
+cega continua disponível (roda sem candidatos.csv).
+
+**Se o pipeline não acha acoplamento:** isso confirma que a varredura
+cega pode perder eventos. O pipeline canônico não é à prova de erros
+— o passo 0 é a correção: você viu, marcou, e agora tem evidência
+documentada.
+
+**Tecnologia:** VisPy (`pip install vispy`) ou Bqplot (`pip install
+bqplot`). MNE-Python já está no requirements e oferece
+`mne.ui.plot_raw` com navegação leve. Neuroglancer para casos 3D.
+
+**Status:** a ser implementado como Jupyter notebook + VisPy/Bqplot.
+O script atual `comodulogram_interativo.py` é protótipo estático —
+não serve como navegador de LFP em tempo real.

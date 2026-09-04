@@ -106,9 +106,12 @@ escolhido.
 | Fit amplo novo (4-100Hz, max_n_peaks=4)     | 8.01 | 0.07 | portão ACEITA, dentro da faixa do artigo (0.014-0.048) |
 
 Redução de erro: ~2.5x. A arquitetura de dois passos (fit amplo + extração
-de pico por banda) replica fielmente Kuhn et al. 2026 (Eqs. 1-5 e
-Tabela 1) e o fit amplo automaticamente detecta os harmônicos 2x (16Hz)
-e 3x (24Hz), que a arquitetura estreita perderia.
+de pico por banda) **replica a arquitetura** de Kuhn et al. 2026 (Eqs. 1-5
+e Tabela 1). O fit amplo também detecta harmônicos 2x (16Hz) e 3x (24Hz),
+que a arquitetura estreita perderia. Com `max_n_peaks=4`, o erro do sinal
+sintético (0.07-0.08) está na **mesma ordem de grandeza** do artigo
+(0.014-0.048) — 1.5-5x acima, explicado pela estrutura mais rica do
+nosso sintético (teta não-senoidal com harmônicos intrínsecos em 2f e 3f).
 
 ### Tabela atualizada com fit amplo (cf, erro, PLV)
 
@@ -131,14 +134,37 @@ mantém-se em 0.297, ainda bem abaixo do limiar 0.5.
 > acaso dentro da tolerância harmônica (γ=23.7Hz vs 3×θ=24Hz, |Δ|=0.3Hz
 > dentro de 0.8Hz tol) foi corretamente rejeitado, com PLV=0.30
 > contra um limiar de 0.5. A integração com o FOOOF de produção
-> agora replica fielmente o método de Kuhn et al. 2026: identificamos
-> que nossa implementação (1) não usava `nfft=4000` no Welch e (2)
-> ajustava o modelo dentro de uma janela estreita de 4-12Hz, o que
-> não dá ao FOOOF informação suficiente para ancorar o componente
-> aperiódico 1/f. A refatoração para arquitetura de dois passos
-> (fit amplo 4-100Hz + extração do pico de teta por banda) reduziu
-> o erro de 0.18 para 0.07, dentro da faixa que o artigo reporta
-> (0.014-0.048). Falta validação em sessões reais (MTESC04/05)."
+> **replica a arquitetura** do método de Kuhn et al. 2026
+> (fit aperiódico amplo 4-100Hz, extração de pico por cf_bounds,
+> max_n_peaks=4), com erro de ajuste em sinal sintético (0.07-0.08)
+> na mesma ordem de grandeza do artigo (0.014-0.048, 1.5-5x maior).
+> Stress test multi-contaminante (50Hz+100Hz+artefato motor, 6
+> estruturas por 4 vagas) mostrou que **`max_n_peaks=4` sozinho
+> é INSUFICIENTE em LFP real** — erro sobe para 0.265, acima do
+> limiar 0.15 de qualidade (cenário D em `test_fooof_pico_budget.py`).
+> Pré-processamento Kuhn-style **corretamente implementado** (subtrair
+> `_peak_fit` do FOOOF em log10, preservando o 1/f local — receita
+> de Kuhn et al. 2026) **reduz o erro de 0.265 para 0.1647** (38%
+> de melhoria). Teta detectado corretamente (cf=8.018). O erro ainda
+> estoura marginalmente o limiar 0.15 por 0.0147 — devido ao artefato
+> motor em 45Hz (não é ruído de linha; não é removível por Kuhn).
+> A subtração Kuhn funciona **apenas quando opera em log10** — a
+> primeira tentativa (subtração linear do modelo completo) causou
+> buraco no espectro e piorou tudo (0.265→0.700). Notch IIR no sinal
+> (alternativa simples) não remove o pico que o FOOOF vê no PSD.
+> **Conclusão prática**: o portão `erro_ajuste<0.15` de
+> `audita_harmonico.py` corretamente rejeita cenários D-like, e a
+> implementação Kuhn-style **é a pré-condição correta** para mnp=4
+> entregar erro aceitável em LFP real. Para dados brasileiros (60Hz),
+> a receita Kuhn usa f=60±7Hz; para o cenário D (construído com
+> 50Hz), f=50±7Hz. Teste de teta senoidal puro confirmou que
+> harmônicos intrínsecos explicam ~0.019 do resíduo (erro
+> 0.080→0.061), mas sobra diferença de implementação não identificada
+> (candidatos: specparam vs fooof 1.1, params Welch).
+> **Pendentes prioritários**: (1) integrar `remove_pico_kuhn` no
+> `extrai_cf_teta_fooof` do `audita_harmonico.py`; (2) validar em
+> sessões MTESC04/05; (3) investigar se specparam tem detecção de
+> pico mais robusta."
 
 ## Como isso apareceu
 
@@ -166,6 +192,71 @@ Sessão de validação em 04/09/2026. Sequência de correções:
    Lição: quando a validação dá valores piores que a literatura,
    verificar a arquitetura da validação antes de mexer no limiar.
 
+## Por que `max_n_peaks=4` é o default de produção (e não 1 ou 2)
+
+Sweep executado em 04/09/2026 com `test_fooof_pico_budget.py`. O
+sintético replica o cenário "harmônico 3x travado" do teste principal
+(teta não-senoidal = soma de senoides em 8/16/24 Hz) com 5 variantes:
+
+| Cenário | mnp=1 | mnp=2 | mnp=4 | teta sobrevive? | erro mnp=4 vs limiar 0.15 |
+|---------|-------|-------|-------|-----------------|---------------------------|
+| A: teta+3x (3 picos genuínos)         | 0.317 | 0.190 | **0.080** | só com mnp≥2 | dentro |
+| B: A + slow_gamma 12Hz                 | 0.388 | 0.290 | **0.087** | só com mnp≥2 | dentro |
+| C: A + spike 55Hz (resíduo 60Hz)       | 0.441 | 0.325 | **0.083** | só com mnp=4 | dentro |
+| D: STRESS multi-contaminante           | 0.592 | 0.459 | **0.265** | sim, mnp≥2   | **ACIMA do limiar** |
+| E: teta puramente senoidal + 3x        | 0.206 | 0.061 | **0.061** | sim, todas   | dentro |
+
+**Conclusões (com escopo limitado — ver ressalvas abaixo):**
+
+1. **`max_n_peaks=4` é o mínimo necessário para o nível de complexidade
+   testado em A, B, C.** Com `mnp=1` ou `mnp=2`, o FOOOF ajusta o
+   harmônico mais alto (24 Hz) e **perde teta por completo** em A e B.
+   Em C (com resíduo 55 Hz de alta amplitude), só `mnp=4` recupera
+   teta. Reduzir `mnp` para "ficar conservador" **quebra** a detecção
+   nesses cenários.
+
+2. **Cenário D (stress multi-contaminante) REVELOU FRAGILIDADE.** Com
+   6 estruturas competindo por 4 vagas (teta + 2 harmônicos + 50Hz +
+   100Hz + artefato motor em 45Hz), o erro com `mnp=4` sobe para
+   **0.265** — **acima do limiar de qualidade 0.15** do
+   `audita_harmonico.py`. Teta é detectado mas o ajuste é ruim
+   o suficiente para o portão REJEITAR o candidato. Cenário D
+   simula LFP real típico; **o teste anterior (A-C) era otimista**.
+
+3. **Cenário E (teta senoidal puro): hipótese do resíduo PARCIALMENTE
+   confirmada.** Erro cai de 0.080 (A) para 0.061 (E) com `mnp=4` —
+   os harmônicos intrínsecos do teta explicam ~0.019 do resíduo.
+   Mas 0.061 **ainda está acima** da faixa 0.014-0.048 do artigo.
+   Sobra ~0.013-0.047 de diferença de implementação não explicada
+   (candidatos: specparam vs fooof 1.1, parâmetros do Welch do
+   artigo, banda de detecção de picos).
+
+4. **Pré-processamento de 50/60 Hz virou OBRIGATÓRIO, não opcional.**
+   O cenário D mostra que sem pré-processamento, mnp=4 sozinho não
+   protege — o erro estoura (0.265). Com Kuhn Gauss-only corretamente
+   implementado (subtrair só o pico em log10, não o modelo completo),
+   o erro do cenário D cai para **0.1647** (38% de melhoria) — ainda
+   marginalmente acima de 0.15, mas a diferença agora é do artefato
+   motor (45Hz), não do ruído de linha. **A receita correta é:
+   subtrair `_peak_fit` em log10 do PSD log, voltar com `10**`,
+   preservando o 1/f local.** A primeira tentativa (subtrair modelo
+   completo) causou buraco no espectro e piorou tudo.
+
+**RESSALVAS ATUALIZADAS** (depois de D e E, não generalizar além):
+
+- O teste D é mais agressivo que LFP real típico (50Hz + 100Hz +
+  artefato motor simultâneos, com amplitudes altas), mas é plausível.
+  Erro 0.265 com mnp=4 indica que **o portão 0.15 do
+  audita_harmonico.py REJEITARIA esse caso** — exatamente o que
+  queremos (sinal ruidoso não vira pseudo-vencedor). Mas também
+  indica que sinais reais com essa complexidade ficam **fora** sem
+  pré-processamento de 50/60Hz.
+- O cenário E confirma que **a maior parte do resíduo 0.03 não é
+  estrutural do sintético** — há diferença de implementação vs
+  artigo, ainda não identificada. Vale a pena investigar se Kuhn
+  et al. usam `specparam` em vez de `fooof` 1.1 (a deprecação
+  recente), ou se há params de Welch sutilmente diferentes.
+
 ## Pendências
 
 - [x] Justificar por que o teste sintético usa limiar PLV=0.5 e a
@@ -173,9 +264,58 @@ Sessão de validação em 04/09/2026. Sequência de correções:
 - [x] Investigar erro_ajuste=0.18 — resolvido por refatoração
       arquitetural (fit amplo + extração por banda), não por
       calibração de limiar
+- [x] Justificar `max_n_peaks=4` (não 1 ou 2) **dentro da
+      complexidade testada** — sweep empírico com 3 cenários
+      confirma que mnp<4 perde teta
+- [x] **Stress test com múltiplos contaminantes simultâneos**
+      (50Hz + 100Hz + artefato motor). Cenário C testa só 1 spike;
+      **CONFIRMADA fragilidade**: erro mnp=4 sobe para 0.265, ACIMA
+      do limiar 0.15. Sinal multi-contaminante seria rejeitado pelo
+      portão (que é o desejado), mas o teste mostra que a margem
+      de mnp=4 é menor que a conclusão anterior sugeria.
+- [x] **Teste com teta puramente senoidal** (hipótese para o
+      resíduo 0.03 vs artigo). **PARCIALMENTE confirmada**: erro
+      cai de 0.080 para 0.061 com mnp=4 (harmônicos intrínsecos
+      explicam ~0.019), mas 0.061 ainda está acima da faixa
+      0.014-0.048. Sobra diferença de implementação não identificada.
+- [x] Tentar pré-processamento Kuhn-style (subtração de fit 1exp
+      no PSD). **Primeira tentativa (subtração do modelo COMPLETO =
+      1/f+picos): ERRO** — erro subiu de 0.265 para 0.700.
+      **Correção (subtrair APENAS a Gaussiana, em log10, preservando
+      1/f)**: erro do cenário D caiu de **0.265 para 0.1647 (38%
+      de melhoria)**. Teta detectado (cf=8.018). Ainda ACIMA do
+      limiar 0.15 por 0.0147 (marginal — artefato motor 45Hz
+      continua competindo). Cenário A sem efeito (0.080→0.074,
+      esperado: sem contaminante em 50Hz). **Resultado CORRETO
+      agora**: Kuhn Gauss-only funciona como receita do paper;
+      a chave é log10, não subtração linear.
+- [x] Tentar pré-processamento notch IIR no sinal (alternativa
+      simples, banda 48-52Hz no cenário D). **Resultado INSUFICIENTE**:
+      erro continua 0.265 (notch remove componente periódico mas
+      não remove o pico de ruído que o FOOOF enxerga no PSD).
+      Notch triplo (50+100+45Hz) também não ajuda.
+- [x] **Teste de sementes (sensibilidade do cenário D)**: 10
+      sementes, todas >0.15 (média 0.1645 ± 0.0004). A margem
+      de 0.015 é **consistente**, não flutuação estocástica.
+      **Conclusão**: o limiar 0.15 rejeita cenário D mesmo com
+      Kuhn Gauss-only, de forma estável.
+- [ ] **Re-implementar Kuhn corretamente** (FEITO: subtrair
+      `_peak_fit` em log10, não modelo completo). Resultado:
+      erro 0.265→0.165 (38% de melhoria). Ainda >0.15 por
+      causa do artefato motor 45Hz (não é ruído de linha).
+- [ ] **Integrar `remove_pico_kuhn` no `extrai_cf_teta_fooof`**
+      do `audita_harmonico.py`. Usar `f=60Hz` (rede brasileira),
+      não 50Hz do artigo europeu. Remover SOMENTE ruído de linha
+      (60 + 120 + 180 Hz). **NÃO remover harmônicos de teta** —
+      isso seria circular (apaga o sinal que o script detecta).
+- [ ] **Refatorar cenário D**: substituir artefato motor em 45Hz
+      (pico butterworth estreito, irreal) por banda larga 150-450Hz
+      (EMG realista, conforme proxy do pac-catcher). Pico em 45Hz
+      cai na banda sgamma e infla artificialmente a competição.
 - [ ] Calibração empírica do portão `erro_ajuste<0.15` em LFP real
       (agora vira "validação do limiar conservador", não "correção")
 - [ ] Validação biológica em sessões MTESC04/05 (não sintética)
 - [ ] Alternativa: usar `specparam` em vez de `fooof` (fooof está
-      deprecado)
+      deprecado) — candidatos para resolver a fragilidade do
+      cenário D também
 

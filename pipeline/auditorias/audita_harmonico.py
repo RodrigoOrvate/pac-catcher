@@ -66,42 +66,71 @@ from ns2_utils import carrega_dados, fatia_janela
 from audita_skewness import theta_skewness_for_window  # REUSO, nao duplicacao
 
 
-def extrai_cf_teta_fooof(sinal, fs, theta_range=(4, 12),
+def extrai_cf_teta_fooof(sinal, fs, fit_range=(4, 100), theta_range=(4, 12),
                           theta_cf_bounds=(5, 9.5), theta_bw_limits=(2, 5),
                           min_peak_height=0.05, nperseg_s=1.2,
-                          aperiodic_mode='knee'):
+                          aperiodic_mode='knee', max_n_peaks=4):
     """
     Estima a frequencia central (cf) de teta via FOOOF (metodo modificado
     de Kuhn et al. 2026, LFP_FOOOF).
 
-    Ajusta o componente aperiodico (1/f) e restringe a deteccao a UMA
-    Gaussiana na banda teta (4-12 Hz), com cf limitado a 5-9.5 Hz.
+    ARQUITETURA DE DOIS PASSOS (segue o artigo, Eqs. 1-5 e Tabela 1):
+        1. Fit amplo do modelo completo (1/f aperiodico + todos os picos
+           periodicos) sobre uma faixa larga (default 4-100Hz). Isso da
+           ao FOOOF espaco dinamico suficiente para ancorar a lei de
+           potencia 1/f^n com confianca estatistica - 8Hz de largura
+           (theta_range sozinho) e' pouquissimo para estimar expoente.
+        2. Extracao do pico de teta por filtragem dos picos ja' ajustados
+           via theta_cf_bounds (default 5-9.5Hz). NAO re-ajustamos um
+           modelo novo dentro de uma janela estreita.
+
+    Por que o fit amplo (e nao so' teta):
+        O artigo reporta erros de "full model fit" (identico ao que
+        fm.get_params('error') retorna, "mean absolute difference of full
+        model fit" segundo a secao "Errors estimation") na faixa de
+        0.014-0.048 mesmo em casos dificeis. Quando restringimos o fit
+        a 4-12Hz, o erro sobe para ~0.18 no mesmo sinal sintetico
+        realista: o FOOOF nao tem informacao suficiente para ancorar a
+        curva aperiodica, entao o residuo explode.
 
     IMPORTANTE sobre aperiodic_mode:
         Default = 'knee' porque LFP real de CA1/DG tem 'knee frequency'
         real (~28 Hz em CA1, ~70 Hz em DG segundo Kuhn et al. 2026).
         'fixed' so deve ser usado em sinais sem componente 1/f ou em
-        testes sinteticos com estrutura simples. A escolha de 'fixed'
-        baseada em teste sintetico isolado NAO generaliza para LFP real.
+        testes sinteticos com estrutura simples.
+
+    Parametros:
+        fit_range: tupla (f_min, f_max) para o fit amplo do FOOOF.
+                   Default (4, 100) - cobre 1/f^slope bem abaixo do
+                   knee (~28Hz) e a maior parte da banda gamma. Acima
+                   de 100Hz, o modelo aperiodico de 1 knee comeca a
+                   divergir e exige os modelos 2exp/3exp do artigo.
+        theta_range, theta_cf_bounds: usados APENAS para filtrar picos
+                   ja' ajustados (passo 2), NAO para restringir o fit.
     """
     nperseg = int(nperseg_s * fs)
     # nfft=4000 (zero-padding): segue Kuhn et al. 2026 (LFP_FOOOF).
-    # Welch ainda janelado em 1.2s (resolução estatística real do espectro),
+    # Welch ainda janelado em 1.2s (resolucao estatistica real do espectro),
     # mas FFT em 4000 pontos interpola o espectro para grade fina
     # (~0.25 Hz/bin), dando ao FOOOF pontos suficientes para convergir
-    # em Gaussiana de 2-5 Hz sem instabilidade numérica.
+    # em Gaussiana de 2-5 Hz sem instabilidade numerica.
     nfft = 4000 if nperseg <= 4000 else nperseg
     freqs, psd = welch(sinal, fs=fs, window='hann',
                         nperseg=nperseg, noverlap=nperseg // 2,
                         nfft=nfft)
 
+    # max_n_peaks=4: artigo detecta slow_gamma, fast_gamma, ripples etc.
+    # no mesmo fit. Restringir a 1 so' faz sentido na hora de extrair por
+    # banda (passo 2), nao no fit em si.
     fm = FOOOF(aperiodic_mode=aperiodic_mode, peak_width_limits=theta_bw_limits,
                min_peak_height=min_peak_height, peak_threshold=1.0,
-               max_n_peaks=1)
+               max_n_peaks=max_n_peaks)
 
-    mask = (freqs >= theta_range[0]) & (freqs <= theta_range[1])
+    # PASSO 1: fit amplo sobre fit_range - dados de entrada NAO restringidos
+    # a banda de teta. O FOOOF recebe o PSD inteiro (ou no max ate 100Hz)
+    # e ajusta o modelo completo (aperiodico + periodicos) numa so' passada.
     try:
-        fm.fit(freqs[mask], psd[mask], freq_range=theta_range)
+        fm.fit(freqs, psd, freq_range=fit_range)
     except Exception as e:
         # FOOOF pode falhar em sinais fracos/sem pico detectavel
         return {"cf_teta": None, "teta_detectado": False,
@@ -114,7 +143,7 @@ def extrai_cf_teta_fooof(sinal, fs, theta_range=(4, 12),
 
     try:
         erro_ajuste = fm.get_params('error')
-        picos = fm.get_params('peak_params')
+        todos_picos = fm.get_params('peak_params')
     except Exception:
         # Em casos raros, get_params pode falhar mesmo com has_model=True
         return {"cf_teta": None, "teta_detectado": False,
@@ -123,13 +152,27 @@ def extrai_cf_teta_fooof(sinal, fs, theta_range=(4, 12),
     if erro_ajuste is None:
         erro_ajuste = float('inf')
 
+    # PASSO 2: extrair pico de teta por filtragem dos picos ja' ajustados.
+    # Isso replica o passo "Detection range" da Tabela 1 do artigo:
+    # o fit ja' foi feito na faixa ampla; agora restringimos o ROTULO
+    # do pico, nao o modelo.
     cf_teta, teta_detectado = None, False
-    if picos is not None and len(picos) > 0:
-        cf_cand = picos[0] if picos.ndim == 1 else picos[0, 0]
-        if theta_cf_bounds[0] <= cf_cand <= theta_cf_bounds[1]:
-            cf_teta, teta_detectado = cf_cand, True
+    if todos_picos is not None and len(todos_picos) > 0:
+        # picos vem como (N, 3): cf, amp, bw. Garantir 2D
+        picos_arr = todos_picos if todos_picos.ndim > 1 else todos_picos.reshape(1, -1)
+        candidatos = picos_arr[(picos_arr[:, 0] >= theta_cf_bounds[0]) &
+                                (picos_arr[:, 0] <= theta_cf_bounds[1])]
+        if len(candidatos) > 0:
+            # Se houver mais de um pico na banda, escolhemos o de maior
+            # amplitude (potencia do pico periodico)
+            cf_teta = float(candidatos[np.argmax(candidatos[:, 1]), 0])
+            teta_detectado = True
 
-    # TODO: calibrar empiricamente
+    # Limiar 0.15: agora comparável aos valores do artigo (0.014-0.048
+    # em casos bem-comportados; ate ~0.15 em casos "ruins" do modelo
+    # mais simples 1exp). Com o fit amplo, este limiar vira conservador,
+    # nao apertado. Calibracao empirica fina em LFP real segue pendente
+    # mas NAO e' a unica coisa que falta.
     qualidade_ok = teta_detectado and erro_ajuste < 0.15
     return {"cf_teta": cf_teta, "teta_detectado": teta_detectado,
             "erro_ajuste": erro_ajuste, "qualidade_ok": qualidade_ok}

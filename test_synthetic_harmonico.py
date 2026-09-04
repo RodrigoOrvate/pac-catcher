@@ -60,14 +60,15 @@ Uso:
 import numpy as np
 import sys
 import os
+import io
+import contextlib
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "pipeline"))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "pipeline/auditorias"))
 
-from scipy.signal import butter, filtfilt
+from scipy.signal import welch, butter, filtfilt
 from fooof import FOOOF
-from scipy.signal import welch
 
 from audita_harmonico import (
     extrai_cf_teta_fooof,
@@ -483,11 +484,59 @@ def main():
         print("           O problema NAO e' a duracao (45s ja foi usada).")
         print("           E' a combinacao nperseg=1.2s + pwl=(2,5) que falha.")
     elif res_teste['has_model'] and res_prod['has_model']:
-        print(f"Producao detecta: cf={res_prod['cf_teta']:.2f}, erro={res_prod['erro_ajuste']:.4f}")
+        print(f"Producao (fit estreito legado): cf={res_prod['cf_teta']:.2f}, erro={res_prod['erro_ajuste']:.4f}")
         if res_prod['erro_ajuste'] > 0.15:
-            print(f"ATENCAO: erro > 0.15, portao REJEITA o caso.")
+            print(f"  ATENCAO: erro > 0.15, portao REJEITA o caso (FIT ESTREITO legado).")
         else:
-            print(f"Portao ACEITA este caso.")
+            print(f"  Portao ACEITA este caso.")
+
+    # -------------------------------------------------------------------------
+    # PARTE 5B: Validacao da NOVA arquitetura (fit amplo + extracao por banda)
+    # Replica a logica de extrai_cf_teta_fooof() apos refatoracao.
+    # -------------------------------------------------------------------------
+    print()
+    print(">>> PARTE 5B: Nova arquitetura (fit amplo 4-100Hz, max_n_peaks=4)")
+    print("=" * 85)
+    print("Replicando a logica de extrai_cf_teta_fooof() apos refatoracao:")
+    print("PASSO 1: fit amplo do FOOOF (4-100Hz, todos os picos juntos).")
+    print("PASSO 2: extracao do pico de teta por filtragem via cf_bounds.")
+    print()
+
+    nperseg = int(1.2 * fs_r)
+    nfft = 4000
+    freqs_p, psd_p = welch(sinal_ctx, fs=fs_r, window='hann',
+                            nperseg=nperseg, noverlap=nperseg // 2, nfft=nfft)
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        fm_wide = FOOOF(aperiodic_mode='knee', peak_width_limits=(2, 5),
+                        min_peak_height=0.05, peak_threshold=1.0, max_n_peaks=4)
+        fm_wide.fit(freqs_p, psd_p, freq_range=(4, 100))
+    erro_wide = fm_wide.get_params('error')
+    picos_wide = fm_wide.get_params('peak_params')
+    print(f"FOOOF amplo (4-100Hz): erro={erro_wide:.4f}, has_model={fm_wide.has_model}")
+    cf_teta_wide = None
+    if picos_wide is not None and len(picos_wide) > 0:
+        for i, p in enumerate(picos_wide if picos_wide.ndim > 1 else picos_wide.reshape(1, -1)):
+            in_theta = "(TETA)" if 5.0 <= p[0] <= 9.5 else ""
+            print(f"  pico {i}: cf={p[0]:.3f}Hz, amp={p[1]:.3f}, bw={p[2]:.3f}Hz {in_theta}")
+        # Filtragem por banda (PASSO 2)
+        cand = picos_wide[(picos_wide[:, 0] >= 5) & (picos_wide[:, 0] <= 9.5)]
+        if len(cand) > 0:
+            cf_teta_wide = float(cand[np.argmax(cand[:, 1]), 0])
+            print(f"  -> cf_teta extraido por banda: {cf_teta_wide:.3f}Hz")
+
+    print()
+    print("-" * 85)
+    print(f"COMPARACAO no mesmo sinal sintetico bem-comportado (3x, 45s, SNR=20):")
+    print(f"  Fit ESTREITO legado (4-12Hz, max_n_peaks=1):  cf={res_prod['cf_teta']:.3f}, erro={res_prod['erro_ajuste']:.4f}")
+    if cf_teta_wide is not None:
+        print(f"  Fit AMPLO novo     (4-100Hz, max_n_peaks=4): cf={cf_teta_wide:.3f}, erro={erro_wide:.4f}")
+        ratio = res_prod['erro_ajuste'] / erro_wide
+        print(f"  -> Reducao de erro: {ratio:.1f}x")
+        if erro_wide < 0.15:
+            print(f"  -> Portao (<0.15) agora ACEITA o caso ideal (erro={erro_wide:.4f}).")
+            print(f"  -> Limiar 0.15 vira conservador, nao apertado - na faixa do artigo (0.014-0.048).")
+    print("=" * 85)
 
     # =========================================================================
     # RESUMO

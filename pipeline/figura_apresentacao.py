@@ -43,7 +43,7 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 
 from comodulogram import (filtra_sinal, aplica_notch, calcula_comodulograma_z,
-                          _mi_de_bin_idx)
+                          _mi_de_bin_idx, FASES_DEFAULT, AMPS_DEFAULT)
 from robustez_parametros import mi_z_par
 from ns2_utils import le_ns2, fatia_janela
 
@@ -107,7 +107,7 @@ def plota_polar(ax, fase_theta, env_gamma, n_bins=N_BINS):
 
 
 def figura_vencedor(rotulo, arquivo, canal, inicio, fim, f_pico, a_pico,
-                    comportamento, pasta_ns2, saida_dir="figuras"):
+                    comportamento, pasta_ns2, par_nome="theta_gamma", saida_dir="figuras"):
     rng = np.random.default_rng(42)
     caminho = f"{pasta_ns2}/{arquivo}"
     print(f"Gerando figura: {canal} @ {inicio:g}-{fim:g}s ...")
@@ -127,8 +127,8 @@ def figura_vencedor(rotulo, arquivo, canal, inicio, fim, f_pico, a_pico,
     z_mi = mi_z_par(lfp, fs, f_pico, a_pico, rng=rng)
 
     # comodulograma completo (mesmo cálculo do lote; notch já aplicado)
-    fases_freq = np.arange(4, 15, 1)
-    amps_freq = np.arange(30, 155, 5)
+    fases_freq = FASES_DEFAULT
+    amps_freq = AMPS_DEFAULT
     z_mapa = calcula_comodulograma_z(lfp, fs, fases_freq, amps_freq,
                                      n_surr=N_SURR, n_bins=N_BINS, rng=rng,
                                      notch_hz=None)
@@ -150,17 +150,17 @@ def figura_vencedor(rotulo, arquivo, canal, inicio, fim, f_pico, a_pico,
 
     ax_raw.plot(t, lfp, lw=0.5, color="#1f77b4")
     ax_raw.set_ylabel("LFP (notch 60 Hz)", fontsize=9, color=cor_txt)
-    ax_raw.set_title(f"PAC theta-gamma VALIDADO — {canal}, {arquivo.replace('.ns2', '')}\n"
+    ax_raw.set_title(f"PAC {par_nome} VALIDADO — {canal}, {arquivo.replace('.ns2', '')}\n"
                      f"{comportamento}\n"
                      f"pico {f_pico:g} Hz × {a_pico:g} Hz, z={z_mi:.1f}",
                      fontsize=11, color=cor_txt)
 
     ax_th.plot(t, theta, lw=0.9, color="#9467bd")
-    ax_th.set_ylabel(f"Theta {f_pico:g}±1 Hz", fontsize=9, color=cor_txt)
+    ax_th.set_ylabel(f"Fase {f_pico:g}±1 Hz", fontsize=9, color=cor_txt)
 
     ax_ga.plot(t, gamma, lw=0.5, color="#ff7f0e", alpha=0.65)
     ax_ga.plot(t, env_gamma, lw=1.3, color="#7f2704")
-    ax_ga.set_ylabel(f"Gamma {a_pico:g}±5 Hz\n+ envelope", fontsize=8.5, color=cor_txt)
+    ax_ga.set_ylabel(f"Amp {a_pico:g}±5 Hz\n+ envelope", fontsize=8.5, color=cor_txt)
 
     f_st, t_st, sxx = signal.spectrogram(lfp, fs, nperseg=512, noverlap=384)
     ax_spec.pcolormesh(t_st, f_st, sxx, shading="auto", cmap="magma",
@@ -176,7 +176,7 @@ def figura_vencedor(rotulo, arquivo, canal, inicio, fim, f_pico, a_pico,
     ax_com.set_title("Comodulograma (z do MI)", fontsize=10, color=cor_txt)
 
     mi = plota_polar(ax_pol, fase_theta, env_gamma)
-    ax_pol.set_title("Fase do theta × amplitude do gamma",
+    ax_pol.set_title("Fase × Amplitude",
                      fontsize=10, color=cor_txt, pad=8)
     # MI/z ABAIXO do círculo polar (acima colidiria com o xlabel do comodulograma)
     ax_pol.text(0.5, -0.16, f"MI = {mi:.3f}  (z = {z_mi:.1f} vs surrogates)",
@@ -212,11 +212,12 @@ def main():
     venc = pd.read_csv(args.vencedores)
     for _, r in venc.iterrows():
         comp = r.get("comportamento")
+        par_nome = r.get("par", "theta_gamma")
         figura_vencedor(str(r["rotulo"]), str(r["arquivo"]), str(r["canal"]),
                         float(r["inicio_s"]), float(r["fim_s"]),
                         float(r["fase_pico_hz"]), float(r["amp_pico_hz"]),
                         "" if pd.isna(comp) else str(comp),
-                        args.pasta_ns2, args.saida_dir)
+                        args.pasta_ns2, par_nome, args.saida_dir)
 
 
 if __name__ == "__main__":

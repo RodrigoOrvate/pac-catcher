@@ -484,101 +484,93 @@ robusto é z≈4 durante o grooming puro.
 
 ---
 
-## 12. `audita_harmonico.py` — Teste de razão harmônica (auditoria)
 
-**O que faz:** Complementa a `audita_skewness.py`. Em vez de olhar apenas a forma de onda, usa o **FOOOF modificado (Kühn et al. 2026)** para estimar a frequência central (cf) do teta em uma janela de contexto longa (default 45 s) e verifica se a amplitude do gama é um múltiplo inteiro (harmônico) desse teta.
+## 12. `audita_harmonico.py` — Teste de razão harmônica Θ→Γ (auditoria)
 
-**Por que daquela forma:** Teta não-senoidal gera harmônicos naturais. Se `amp_pico ≈ n * cf_teta` (ex: 8Hz teta → 16Hz, 24Hz gamma), o acoplamento pode ser um artefato da própria forma de onda do teta e não um processo neural distinto. A separação entre janela de contexto (para estabilizar o FOOOF) e janela de candidato (para o PAC) evita que oscilações transitórias enviesem a referência.
+**O que faz:** usa FOOOF (Kühn et al. 2026) para estimar `cf_teta` numa janela
+de contexto longa (45 s) e testa se `amp_pico ≈ n × cf_teta` em frequência
+(razão inteira, tolerância 10%) e em fase (PLV entre `n×phi_theta` e
+`phi_gamma`).
 
-**Três dimensões independentes (rigor estatístico crescente):**
-1. **Frequência**: Razão inteira `amp/fase ≈ n` (tolerância relativa 10% de `cf_teta`)
-2. **Forma de onda**: Skewness do teta (reusado de `audita_skewness.py`)
-3. **Fase**: PLV entre `n*phi_theta` e `phi_gamma` (discriminador mais forte — harmônico matemático tem fase travada)
+**Três dimensões independentes:**
+1. **Frequência**: razão inteira `amp/fase ≈ n` (tolerância 10% de `cf_teta`)
+2. **Forma de onda**: skewness do teta (reusado de `audita_skewness.py`)
+3. **Fase**: PLV entre `n×phi_theta` e `phi_gamma` — discriminador mais forte
 
-**Veredito:**
-- `CLEAN` → todos os testes negativos
-- `REVISAR_RAZAO_INTEIRA` → só razão suspeita
-- `REVISAR_FASE_TRAVADA` → razão + PLV alto (sem skew) — possível harmônico mascarado
-- `SUSPEITO_HARMONICO_FORTE` → todos os testes positivos (3/3)
-- `SEM_REFERENCIA_TETA` → FOOOF não detectou teta com qualidade_ok
+**Veredito:** CLEAN / REVISAR_RAZAO_INTEIRA / REVISAR_FASE_TRAVADA / SUSPEITO_HARMONICO_FORTE / SEM_REFERENCIA_TETA
 
 **CLI:**
 ```bash
-python audita_harmonico.py --csv "<sessao>/RESULTADOS/vencedores.csv" \\
-    --pasta_ns2 "<sessao>/<BASAL>" \\
-    --saida "<sessao>/RESULTADOS/harmonico.csv" \\
-    --janela_contexto_s 45 \\
-    --modo_preprocesso hibrido --f_linha 60.0
+python audita_harmonico.py --csv "<sessao>/RESULTADOS/vencedores.csv" \
+    --pasta_ns2 "<sessao>/<BASAL>" \
+    --saida "<sessao>/RESULTADOS/harmonico.csv" \
+    --janela_contexto_s 45 --modo_preprocesso hibrido --f_linha 60.0
 ```
-
-**Args novos (default retrocompatível):**
-- `--modo_preprocesso {'sem','gaussiana','cirurgica','hibrido'}` — config de
-  limpeza de linha Kuhn et al. 2026. Default `hibrido` (vencedor da
-  comparação: menor erro no sintético EU+BR, preserva fast gamma e knee
-  no `.mat` real). `sem` = sem limpeza (portável para outros países).
-- `--f_linha 60.0` — frequência da rede elétrica (Hz). 60 para Brasil,
-  50 para EUA/Europa. Afeta apenas 60/120/180 Hz (ou 50/100/150).
-
-**Saída:** `harmonico.csv` (rotula cada vencedor com veredito, cf_teta, PLV, skewness).
-
-**Natureza:** Experimental. Requer calibração de limiares (erro de ajuste FOOOF, tolerância de Hz e tamanho de janela) contra dados reais. É um rótulo de auditoria, não um filtro automático.
-
-**Validação sintética** (test_synthetic_harmonico.py, 04/09/2026):
-- Cenário A (harmônico 3x travado): PLV=0.991, ordem=3 → discriminação correta
-- Cenário B (gamma independente 35Hz): PLV=N/A, razão não suspeita → discriminação correta
-- Limiar `erro_ajuste=0.15` rejeitou ambos (erro sintético=0.26) — confirmando que o chute precisa de calibração empírica.
-
-
-O que contém:
-- **`le_ns2(caminho_arquivo)`** — lê .ns2 via `neo.rawio.BlackrockRawIO`
-  (leitura preguiçosa, `load_nev=False` para evitar erro de
-  "Inconsistent ns2 and nev" em gravações pausadas/retomadas).
-  Retorna `(dados, fs, nomes_canais)` — dados em n_amostras × n_canais.
-- **`le_bin_legado(caminho_arquivo, n_canais, fs)`** — lê .bin antigo
-  (int16 puro, extraído pelo `extrator.exe`). Para quem ainda tem
-  arquivos do pipeline pré-neo.
-- **`carrega_dados(caminho_arquivo)`** — dispatcher automático por
-  extensão (.ns2 → `le_ns2`, .bin/.dat → `le_bin_legado`).
-- **`fatia_janela(dados, fs, t_inicio, t_fim)`** — recorta uma
-  janela [t_inicio, t_fim) em amostras.
-
-**Notas:**
-- Canais nomeados `chan1`..`chan32` (índice = nome − 1) nas sessões
-  com 32 canais; `chan2`..`chan32` (pares) nas sessões com 16 canais
-  (sessões 2–3). O nome é indexado pelo *nome*, não pelo número —
-  atenção ao usar `mapa_canal = {str(nome): i}`.
-- `load_nev=False` é intencional: na triagem só precisamos do sinal
-  contínuo, não dos eventos TTL.
 
 ---
 
-## Convenções comuns a todos os scripts
+## 13. udita_harmonico_hfo.py � Teste de raz�o harm�nica G?HFO *(novo 2026-09-05)*
 
-- **Notch 60 Hz** (`--notch 60`): padrão recomendado em todas as
-  sessões a partir da sessão 1 (rede elétrica brasileira). Sempre
-  comparar com/sem notch — pico que cai > 1,5z com o notch é rede,
-  não acoplamento.
-- **Nula de surrogates:** deslocamento circular ≥ 1 s, 200 repetições,
-  semente 42. Idêntica em todos os scripts (triagem, refino,
-  comodulograma, robustez, diagnóstico, auditoria) — garante
-  comparabilidade dos z-scores entre etapas.
-- **Parâmetros canônicos:** janela 10 s / passo 5 s; theta 4–8 Hz ×
-  gamma 30–80 Hz; n_bins 18; filtro ±1 Hz fase / ±5 Hz amplitude;
-  200 surrogates.
-- **`filtra_sinal`**: filtro butterworth bandpass, `filtfilt` (zero
-  fase), ordem 3. Idêntico em todos os scripts.
-- **`_mi_de_bin_idx`**: núcleo vetorizado do KL-MI via `np.bincount`.
-- **`bh_fdr`**: Benjamini-Hochberg; `m_total` = número de testes da
-  família *completa* (todas as janelas da triagem original), não só
-  os refinados — conservador.
+Testa se HFO (150�250 Hz) � harm�nico de Gamma (30�80 Hz) usando FOOOF para
+estimar cf_gamma e PLV(n�phi_gamma, phi_hfo). An�logo ao udita_harmonico.py.
+Vereditos: CLEAN / REVISAR_RAZAO_INTEIRA / REVISAR_FASE_TRAVADA / SUSPEITO_HARMONICO_FORTE / SEM_REFERENCIA_GAMMA.
 
-## Princípio revisor
+---
 
-> Casos específicos de sessão (canais, janelas, offsets, vencedores)
-> **NUNCA** entram hardcoded no código. Entram por CLI (argumento),
-> por `vencedores.csv`, ou por `registro_resultados.md`. Se um script
-> precisar de algo específico da sessão, entra por argumento — nunca
-> edite lista no código.
->
-> Isso permite que o mesmo SCRIPT central sirva a MTESC04/05 × NOCI/
-> LAC sem reescrita — a sessão configura via CLI, o código é só um.
+## Conven��es comuns a todos os scripts
+
+- **Notch 60 Hz** (--notch 60): padr�o recomendado. Comparar sempre com/sem.
+- **Nula de surrogates:** deslocamento circular >= 1 s, 200 repeti��es, semente 42.
+- **Par�metros canonicos:** janela 10 s / passo 5 s; theta 4-8 Hz x gamma 30-80 Hz; n_bins 18; 200 surrogates.
+- **iltra_sinal**: Butterworth bandpass, iltfilt (zero fase), ordem 3.
+- **_mi_de_bin_idx**: nucleo vetorizado do KL-MI via 
+p.bincount.
+- **h_fdr**: Benjamini-Hochberg; m_total = familia completa de testes.
+
+## Princ�pio revisor
+
+> Casos espec�ficos de sess�o (canais, janelas, offsets, vencedores)
+> **NUNCA** entram hardcoded no c�digo. Entram por CLI/CSV.
+
+---
+
+## Pipeline multi-acoplamento: Theta-Gamma / Theta-HG / Theta-HFO
+
+*(atualiza��o 2026-09-05)*
+
+| Par | Banda amplitude | Substrato | Estado |
+|---|---|---|---|
+| 	heta_gamma | 30-80 Hz | Fast gamma: CA3->CA1 | Explora��o |
+| 	heta_hg | 80-150 Hz | High gamma: EC->CA1 | Misto |
+| 	heta_hfo | 150-250 Hz | HFO/ripple: CA1 local | Repouso/SWR |
+
+**Efici�ncia:** 3 pares x 59 janelas x 200 surrogates ~ 8 s para 300 s de sinal, 1 canal.
+
+```bash
+# .mat direto (sem .ns2):
+python pipeline/triagem_pac_mat.py --mat DADOS_EXEMPLO_LFP_HG_HFO/LFP_HG_HFO.mat
+
+# .ns2 multi-par:
+python pipeline/triagem_pac.py --pasta <sessao>/BASAL \
+    --pares theta_gamma theta_hg theta_hfo \
+    --saida <sessao>/RESULTADOS/resultados_triplo.csv
+```
+
+### Resultado validado no LFP_HG_HFO.mat (2026-09-05)
+
+| Par | z mediana | z std | Candidatos (z>=3) |
+|---|---|---|---|
+| theta_gamma | 6.93 | 2.96 | 58/59 |
+| theta_hg | 12.39 | 4.75 | 57/59 |
+| theta_hfo | 0.50 | 1.52 | 7/59 |
+
+	eta_ok: 17/59 (29%), std=0.457 � varia (bug de cache corrigido).
+atio_hfo_gamma mediana=0.013 � HFO nao e harmonico de Gamma.
+
+### Bugs corrigidos em 2026-09-05
+
+| Bug | Sintoma | Causa | Correccao |
+|---|---|---|---|
+| Cache 	eta_ok | 58/58 = 1, variancia zero | Calculo fora do loop | Movido para 	eta_ok_por_janela() dentro do loop |
+| z-score single-surrogate | z = 3e14 alternando com 0 | max(mi_s*0.1, 0.01) como "dp" | Substituido por mi_com_surrogates() 100 surrogates |
+| Escala .mat | Diagnostico invisivel | Sem verificacao de std | dapta_lfp_mat.py com info_sinal() + --normaliza |

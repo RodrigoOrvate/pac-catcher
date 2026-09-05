@@ -7,6 +7,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from ns2_utils import carrega_dados, fatia_janela
+from triagem_pac import mi_com_surrogates  # z-score com 200 surrogates (correto)
 
 def filtra_sinal(sinal, lowcut, highcut, fs, order=3):
     nyq = 0.5 * fs
@@ -25,38 +26,71 @@ def calcula_psd_minuto(pasta, arquivo, canal, t_ini_s, t_fim_s):
     f, p = welch(sinal, fs=fs, nperseg=int(1.2*fs), noverlap=int(1.2*fs)//2, nfft=4000)
     return f, p
 
-def calcula_timeline_mi(pasta, arquivo, canal, t_ini_s, t_fim_s, passo_s=5):
+def calcula_timeline_mi_triplo(pasta, arquivo, canal, t_ini_s, t_fim_s,
+                                passo_s=5, n_surr=100):
+    """
+    Timeline de MI z-score para os TRES pares de banda:
+      theta_gamma (4-8 x 30-80 Hz)   — exploração locomotora
+      theta_hg    (4-8 x 80-150 Hz)  — estado misto
+      theta_hfo   (4-8 x 150-250 Hz) — repouso / SWR-associado
+
+    Retorna: ts, z_tg, z_thg, z_thfo (arrays com mesmo comprimento)
+
+    Usa mi_com_surrogates() com n_surr=100 surrogates (mais rápido que 200
+    mas estátisticamente válido para painel visual interativo).
+    """
     path = os.path.join(pasta, arquivo)
     dados, fs, canal_ids = carrega_dados(path)
     idx = canal_ids.index(canal)
-    ts, zs = [], []
+    rng = np.random.default_rng(42)
+    nyq = fs * 0.5
+    ts, z_tg, z_thg, z_thfo, ratio_hfo_g = [], [], [], [], []
+
     for ini in np.arange(t_ini_s, t_fim_s - 10, passo_s):
         fim = ini + 10
-        sinal = fatia_janela(dados, fs, ini, fim)[:, idx]
+        sinal = fatia_janela(dados, fs, ini, fim)[:, idx].astype(float)
+
+        # Fase (theta) — calculada UMA vez, reutilizada para os 3 pares
         s_th = filtra_sinal(sinal, 4, 8, fs, order=3)
-        s_g = filtra_sinal(sinal, 30, 80, fs, order=3)
         fase = np.angle(hilbert(s_th))
-        env = np.abs(hilbert(s_g))
-        # MI simplificado (amostra 1/10 para velocidade)
-        fs_down = max(1, fs // 10)
-        fase_s = fase[::10]
-        env_s = env[::10]
-        bins = np.linspace(-np.pi, np.pi, 19)
-        bin_idx = np.clip(np.digitize(fase_s, bins) - 1, 0, 17)
-        # MI observado
-        p_obs = np.bincount(bin_idx, weights=env_s, minlength=18) / np.bincount(bin_idx, minlength=18).clip(1, None)
-        p_obs = np.clip(p_obs, 1e-12, 1)
-        mi_obs = np.sum(p_obs * np.log(p_obs * 18))
-        # Surrogate simples
-        shift = max(10, len(env_s)//10)
-        env_shift = np.roll(env_s, shift)
-        p_s = np.bincount(bin_idx, weights=env_shift, minlength=18) / np.bincount(bin_idx, minlength=18).clip(1, None)
-        p_s = np.clip(p_s, 1e-12, 1)
-        mi_s = np.sum(p_s * np.log(p_s * 18))
-        z = (mi_obs - mi_s) / max(mi_s * 0.1, 0.01) if mi_s > 0 else 0.0
+
+        # Par 1: Theta x Gamma
+        env = np.abs(hilbert(filtra_sinal(sinal, 30, 80, fs)))
+        _, z1, _, _, _ = mi_com_surrogates(fase, env, fs, n_surr=n_surr, rng=rng)
+
+        # Par 2: Theta x HG
+        env = np.abs(hilbert(filtra_sinal(sinal, 80, 150, fs)))
+        _, z2, _, _, _ = mi_com_surrogates(fase, env, fs, n_surr=n_surr, rng=rng)
+
+        # Par 3: Theta x HFO (respeita Nyquist)
+        hfo_hi = min(250, nyq * 0.95)
+        if 150 < hfo_hi:
+            env = np.abs(hilbert(filtra_sinal(sinal, 150, hfo_hi, fs)))
+            _, z3, _, _, _ = mi_com_surrogates(fase, env, fs, n_surr=n_surr, rng=rng)
+        else:
+            z3 = float('nan')
+
+        # Ratio HFO/Gamma (proxy de harmônico de Gamma — baixo = HFO genuino)
+        p_g   = np.mean(filtra_sinal(sinal, 30, 80, fs) ** 2) + 1e-12
+        p_hfo = np.mean(filtra_sinal(sinal, 150, hfo_hi, fs) ** 2) + 1e-12 if 150 < hfo_hi else 0.0
+        ratio = p_hfo / p_g
+
         ts.append(ini + 5)
-        zs.append(z)
-    return np.array(ts), np.array(zs)
+        z_tg.append(z1)
+        z_thg.append(z2)
+        z_thfo.append(z3)
+        ratio_hfo_g.append(ratio)
+
+    return (np.array(ts), np.array(z_tg), np.array(z_thg),
+            np.array(z_thfo), np.array(ratio_hfo_g))
+
+
+# Mantido para compatibilidade com outros scripts que chamam calcula_timeline_mi
+def calcula_timeline_mi(pasta, arquivo, canal, t_ini_s, t_fim_s, passo_s=5,
+                         n_surr=100):
+    ts, z_tg, _, _, _ = calcula_timeline_mi_triplo(
+        pasta, arquivo, canal, t_ini_s, t_fim_s, passo_s, n_surr)
+    return ts, z_tg
 
 def calcula_timeline_theta_power(pasta, arquivo, canal, t_ini_s, t_fim_s, passo_s=5):
     path = os.path.join(pasta, arquivo)
@@ -73,40 +107,80 @@ def calcula_timeline_theta_power(pasta, arquivo, canal, t_ini_s, t_fim_s, passo_
         ts.append(ini + 5)
     return np.array(ts), np.array(powers)
 
-def plota_painel(minuto_idx, pasta, arquivo, canal, t_ini_s, t_fim_s, saida_path):
+def plota_painel(minuto_idx, pasta, arquivo, canal, t_ini_s, t_fim_s, saida_path,
+                  n_surr=100):
+    """
+    Painel de 4 subplots por minuto:
+      1. PSD (4 bandas sombreadas: Theta, Gamma, HG, HFO)
+      2. Timeline MI z-score — 3 pares sobrepostos (Theta-Gamma, Theta-HG, Theta-HFO)
+         Interpretacao: TG alto = exploracao; THFO alto = repouso/SWR
+      3. Timeline Theta Power (log10) — proxy de oscilação ativa
+      4. ratio_hfo_gamma — proxy de harmônico Gamma->HFO (alto = suspeito)
+    """
     os.makedirs(os.path.dirname(saida_path) or ".", exist_ok=True)
-    fig, axes = plt.subplots(3, 1, figsize=(12, 10))
+    fig, axes = plt.subplots(4, 1, figsize=(13, 14))
+    fig.suptitle(f"Minuto {minuto_idx} — Canal {canal} — {t_ini_s:.0f}-{t_fim_s:.0f}s",
+                  fontsize=14, weight="bold", y=0.98)
+
+    # --- Painel 1: PSD ---
     f, p = calcula_psd_minuto(pasta, arquivo, canal, t_ini_s, t_fim_s)
     ax = axes[0]
     ax.semilogy(f, p, color="#1f77b4", lw=1.5, label="PSD")
-    ax.axvspan(4, 8, color="#2ca02c", alpha=0.15, label="Theta 4-8 Hz")
-    ax.axvspan(30, 80, color="#ff7f0e", alpha=0.15, label="Gamma 30-80 Hz")
+    ax.axvspan(4,   8,   color="#2ca02c", alpha=0.18, label="Theta 4-8 Hz")
+    ax.axvspan(30,  80,  color="#ff7f0e", alpha=0.15, label="Gamma 30-80 Hz")
+    ax.axvspan(80,  150, color="#9467bd", alpha=0.13, label="HG 80-150 Hz")
+    ax.axvspan(150, 250, color="#e377c2", alpha=0.12, label="HFO 150-250 Hz")
     for fl in [60, 120, 180]:
-        ax.axvline(fl, color="#555555", ls="--", lw=0.8, alpha=0.7)
-    ax.set_xlim(0, 200)
-    ax.set_xlabel("Frequencia (Hz)", fontsize=11)
-    ax.set_ylabel("PSD (uV2/Hz)", fontsize=11)
-    ax.set_title(f"Minuto {minuto_idx} — Canal {canal} — PSD media (60s)", fontsize=13, weight="bold")
-    ax.legend(loc="upper right", fontsize=9)
+        ax.axvline(fl, color="#555555", ls="--", lw=0.8, alpha=0.6)
+    ax.set_xlim(0, 260)
+    ax.set_xlabel("Frequencia (Hz)", fontsize=10)
+    ax.set_ylabel("PSD (uV2/Hz)", fontsize=10)
+    ax.set_title("PSD media da janela (4 bandas PAC marcadas)", fontsize=11)
+    ax.legend(loc="upper right", fontsize=8, ncol=2)
     ax.grid(True, alpha=0.3)
-    ts, zs = calcula_timeline_mi(pasta, arquivo, canal, t_ini_s, t_fim_s, passo_s=5)
+
+    # --- Painel 2: Timeline MI z-score (3 pares) ---
+    ts, z_tg, z_thg, z_thfo, ratio = calcula_timeline_mi_triplo(
+        pasta, arquivo, canal, t_ini_s, t_fim_s, passo_s=5, n_surr=n_surr)
+    t_rel = ts - t_ini_s
     ax = axes[1]
-    ax.plot(ts - t_ini_s, zs, marker="o", markersize=3, color="#9467bd", lw=1.5, label="MI z-score")
+    ax.plot(t_rel, z_tg,   marker="o", ms=3, color="#ff7f0e", lw=1.8,
+            label="z Theta x Gamma (exploracao)")
+    ax.plot(t_rel, z_thg,  marker="s", ms=3, color="#9467bd", lw=1.8,
+            label="z Theta x HG")
+    ax.plot(t_rel, z_thfo, marker="^", ms=3, color="#e377c2", lw=1.8,
+            label="z Theta x HFO (repouso/SWR)")
     ax.axhline(3, color="#d62728", ls="--", lw=1, label="z=3 (limiar)")
-    ax.fill_between(ts - t_ini_s, 0, zs, alpha=0.15, color="#9467bd")
-    ax.set_ylabel("MI z-score", fontsize=11)
-    ax.set_title("Timeline MI (janelas 10s / passo 5s)", fontsize=11)
-    ax.legend(loc="upper left", fontsize=9)
+    ax.axhline(0, color="#aaaaaa", ls="-", lw=0.5)
+    ax.set_ylabel("MI z-score", fontsize=10)
+    ax.set_title("Timeline MI — 3 pares (janelas 10s / passo 5s)", fontsize=11)
+    ax.legend(loc="upper left", fontsize=8)
     ax.grid(True, alpha=0.3)
-    ts, th = calcula_timeline_theta_power(pasta, arquivo, canal, t_ini_s, t_fim_s, passo_s=5)
+
+    # --- Painel 3: Theta Power ---
+    ts_th, th = calcula_timeline_theta_power(pasta, arquivo, canal, t_ini_s, t_fim_s)
     ax = axes[2]
-    ax.plot(ts - t_ini_s, th, marker="s", markersize=3, color="#2ca02c", lw=1.5, label="Theta 4-8 Hz (log10)")
-    ax.set_ylabel("Theta Power (log10 uV2)", fontsize=11)
-    ax.set_xlabel("Tempo dentro do minuto (s)", fontsize=11)
-    ax.set_title("Timeline Theta Power", fontsize=11)
-    ax.legend(loc="upper left", fontsize=9)
+    ax.plot(ts_th - t_ini_s, th, marker="s", ms=3, color="#2ca02c", lw=1.5,
+            label="Theta 4-8 Hz (log10 uV2)")
+    ax.set_ylabel("Theta Power\n(log10 uV2)", fontsize=10)
+    ax.set_title("Timeline Theta Power — proxy de estado ativo", fontsize=11)
+    ax.legend(loc="upper left", fontsize=8)
     ax.grid(True, alpha=0.3)
-    plt.tight_layout()
+
+    # --- Painel 4: ratio HFO/Gamma ---
+    ax = axes[3]
+    ax.plot(t_rel, ratio, marker="D", ms=3, color="#8c564b", lw=1.3,
+            label="Potencia HFO / Gamma")
+    ax.axhline(0.3, color="#d62728", ls="--", lw=1,
+               label="0.3 (alerta harmonico Gamma->HFO)")
+    ax.set_ylabel("ratio HFO/Gamma", fontsize=10)
+    ax.set_xlabel("Tempo dentro da janela (s)", fontsize=10)
+    ax.set_title("ratio_hfo_gamma — baixo = HFO genuino; alto = provavel harmonico",
+                  fontsize=11)
+    ax.legend(loc="upper left", fontsize=8)
+    ax.grid(True, alpha=0.3)
+
+    plt.tight_layout(rect=[0, 0, 1, 0.97])
     plt.savefig(saida_path, dpi=110, bbox_inches="tight")
     plt.close(fig)
     print(f"  -> {saida_path}")
@@ -123,16 +197,22 @@ def ranking_canais_potencia(pasta, arquivo, t_ini_s, t_fim_s, n_top=5):
         sinal = fatia_janela(dados, fs, t_ini_s, t_fim_s)[:, idx]
         s_th = filtra_sinal(sinal, 4, 8, fs, order=3)
         s_g = filtra_sinal(sinal, 30, 80, fs, order=3)
+        s_hg = filtra_sinal(sinal, 80, 150, fs, order=3)
+        s_hfo = filtra_sinal(sinal, 150, 250, fs, order=3)
         f_th, p_th = welch(s_th, fs=fs, nperseg=int(1.2*fs), noverlap=int(1.2*fs)//2, nfft=4000)
         f_g, p_g = welch(s_g, fs=fs, nperseg=int(1.2*fs), noverlap=int(1.2*fs)//2, nfft=4000)
+        f_hg, p_hg = welch(s_hg, fs=fs, nperseg=int(1.2*fs), noverlap=int(1.2*fs)//2, nfft=4000)
+        f_hfo, p_hfo = welch(s_hfo, fs=fs, nperseg=int(1.2*fs), noverlap=int(1.2*fs)//2, nfft=4000)
         p_th_mean = np.mean(p_th[(f_th>=4)&(f_th<=8)])
         p_g_mean = np.mean(p_g[(f_g>=30)&(f_g<=80)])
-        potencias[ch] = p_th_mean + p_g_mean
+        p_hg_mean = np.mean(p_hg[(f_hg>=80)&(f_hg<=150)])
+        p_hfo_mean = np.mean(p_hfo[(f_hfo>=150)&(f_hfo<=250)])
+        potencias[ch] = p_th_mean + p_g_mean + p_hg_mean + p_hfo_mean
     top = sorted(potencias.items(), key=lambda x: x[1], reverse=True)[:n_top]
     return [ch for ch,_ in top]
 
 
-# Prote��o de dura��o real � evita overrun quando arquivo � ~298s (n�o 300)
+# Prote��o de dura��o real � evita overrun quando arquivo � ~298s (n�o 300)
 def duracao_arquivo(pasta, arquivo):
     path = os.path.join(pasta, arquivo)
     dados, fs, _ = carrega_dados(path)
@@ -157,7 +237,7 @@ def main():
         arquivo = arquivos[min(arquivo_idx, len(arquivos) - 1)]
         t_ini_local = ((minuto - 1) % 5) * 60
         t_fim_local = t_ini_local + 60
-        # Limita � dura��o real do arquivo (varia��o ~2 s por .ns2)
+        # Limita � dura��o real do arquivo (varia��o ~2 s por .ns2)
         dur_real = duracao_arquivo(args.pasta_ns2, arquivo)
         t_fim_local = min(t_fim_local, max(dur_real - 0.5, 0))
         if args.top_n > 0:

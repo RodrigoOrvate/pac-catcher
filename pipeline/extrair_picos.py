@@ -36,19 +36,14 @@ except Exception:
     pass
 
 from ns2_utils import le_ns2, fatia_janela
+from triagem_pac import BAND_PAIRS
 from comodulogram import (aplica_notch, calcula_comodulograma_z,
                           p_valores_por_celula, bh_fdr_mapa,
-                          resume_cluster_fdr, z_pico_theta_gamma)
+                          resume_cluster_fdr, z_pico_par,
+                          FASES_DEFAULT, AMPS_DEFAULT)
 
-# banda clássica Theta-Gamma (padrão)
-THETA_STD = (4.0, 8.0)
-GAMMA_STD = (30.0, 80.0)
-# busca ampla (opt-in)
-THETA_WIDE = (4.0, 14.0)
-GAMMA_WIDE = (20.0, 150.0)
-
-FASES_PADRAO = np.arange(4, 15, 1)
-AMPS_PADRAO = np.arange(30, 155, 5)
+FASES_PADRAO = FASES_DEFAULT
+AMPS_PADRAO = AMPS_DEFAULT
 
 
 def _pico_in_banda(z_mapa, fases_freq, amps_freq, theta_band, gamma_band):
@@ -74,14 +69,22 @@ def main():
     ap.add_argument("--pasta_ns2", required=True, help="pasta com os .ns2")
     ap.add_argument("--saida", default="extracao_picos_v1_vs_v2.csv")
     ap.add_argument("--busca_ampla", action="store_true",
-                    help="procura em 4-14 x 20-150 Hz em vez da banda padrão 4-8 x 30-80")
+                    help="expande a busca original para 4-14 x 20-250 Hz (legacy)")
     ap.add_argument("--n_surr", type=int, default=200,
                     help="surrogates por célula (default 200)")
     ap.add_argument("--fdr_q", type=float, default=0.05, help="q do FDR (default 0.05)")
+    ap.add_argument("--par", default="theta_gamma",
+                    choices=list(BAND_PAIRS.keys()),
+                    help="Qual par usar para a banda padrão (default: theta_gamma)")
     args = ap.parse_args()
 
-    theta_band = THETA_WIDE if args.busca_ampla else THETA_STD
-    gamma_band = GAMMA_WIDE if args.busca_ampla else GAMMA_STD
+    cfg = BAND_PAIRS.get(args.par, BAND_PAIRS["theta_gamma"])
+    if args.busca_ampla:
+        theta_band = (4.0, 14.0)
+        gamma_band = (20.0, 250.0)
+    else:
+        theta_band = cfg["fase"]
+        gamma_band = cfg["amp"]
 
     df = pd.read_csv(args.csv)
 
@@ -107,7 +110,7 @@ def main():
             rng=np.random.default_rng(42), notch_hz=None, retorna_mi=True)
         p_mapa = p_valores_por_celula(mi_obs, mi_surr)
         mask_fdr = bh_fdr_mapa(p_mapa, alpha=args.fdr_q)
-        frac = resume_cluster_fdr(mask_fdr, FASES_PADRAO, AMPS_PADRAO)
+        frac = resume_cluster_fdr(mask_fdr, FASES_PADRAO, AMPS_PADRAO, par=args.par)
 
         z_old = _z_na_celula(z_mapa, FASES_PADRAO, AMPS_PADRAO, fp_old, fa_old)
         z_new, fp_new, fa_new = _pico_in_banda(z_mapa, FASES_PADRAO, AMPS_PADRAO,
@@ -116,7 +119,7 @@ def main():
         i_new = int(np.argmin(np.abs(AMPS_PADRAO - fa_new)))
         fdr_sig_novo = bool(mask_fdr[i_new, j_new])
         n_sig = frac["n_sig"]
-        frac_tg = frac["frac_sig_tg"]
+        frac_par = frac.get("frac_sig_par", frac.get("frac_sig_tg", 0.0))
 
         in_band_old = (theta_band[0] <= fp_old <= theta_band[1] and
                        gamma_band[0] <= fa_old <= gamma_band[1])
@@ -135,11 +138,11 @@ def main():
 
         linhas.append({
             "rotulo": r.get("rotulo"), "canal": canal, "arquivo": arquivo,
-            "inicio_s": ini, "fim_s": fim,
+            "inicio_s": ini, "fim_s": fim, "par": args.par,
             "fase_antiga_hz": fp_old, "amp_antiga_hz": fa_old, "z_antiga": round(z_old, 2),
             "fase_nova_hz": fp_new, "amp_nova_hz": fa_new, "z_nova": round(z_new, 2),
             "fdr_sig_nova": fdr_sig_novo, "n_sig_fdr": n_sig,
-            "frac_sig_tg": round(frac_tg, 3), "veredito": verdict,
+            "frac_sig_par": round(frac_par, 3), "veredito": verdict,
         })
 
     out = pd.DataFrame(linhas)

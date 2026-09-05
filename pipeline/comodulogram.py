@@ -1,51 +1,35 @@
 """
-comodulogram.py (atualizado)
+comodulogram.py
 ==========================================
-Comodulograma Theta-Gamma -- agora lendo .ns2 diretamente, sem
-precisar do extrator.exe. Ainda aceita .bin legado.
+Comodulograma fase-amplitude -- suporta os três pares:
+  theta_gamma  : Theta 4-8 Hz x Gamma  30-80  Hz
+  theta_hg     : Theta 4-8 Hz x HG     80-150 Hz
+  theta_hfo    : Theta 4-8 Hz x HFO   150-250 Hz
 
 DOIS MODOS:
 
   1. MODO LOTE (--csv): lê o resultados_refinados.csv produzido pelo
      refina_candidatos.py e gera um PNG por candidato, com o MI
-     Z-SCOREADO contra surrogates de deslocamento circular (a mesma
-     nula do triagem_pac.py). Motivo: MI bruto não tem escala
-     interpretável -- 0.03 é muito ou pouco? -- e o mapa bruto pinta
-     qualquer ruído como "hot". O z-score dá origem significante ao
-     heatmap (z=0 == nível de acaso, negativo = abaixo do acaso), o
-     que pede colormap DIVERGENTE (RdBu_r centrado em 0) em vez do
-     jet arco-íris: azul = abaixo do acaso, vermelho = acima,
-     branco/claro = nada.
+     Z-SCOREADO contra surrogates de deslocamento circular.
+     Usa --par para decidir qual quadrante destacar no mapa.
 
-  2. JANELA ÚNICA: exploração rápida de um trecho específico, agora
-     também z-scoredo, pelos mesmos motivos (era o MI bruto criticado
-     na cabeça do triagem_pac.py).
+  2. JANELA ÚNICA: exploração rápida de um trecho específico.
 
-EM AMBOS OS MODOS, --fdr_q 0.05 adiciona a correção de múltiplas
-comparações SOBRE O MAPA: p-valor por célula (Gama ajustada aos
-surrogates da própria célula), Benjamini-Hochberg sobre as 275 células,
-contorno preto nas células significantes e classificação do padrão --
-"cluster focal ΘΓ" (acoplamento) vs "esparso/fora de ΘΓ" (transientes
-ritmados, como na coluna de 8 Hz dos canais ruins).
+EM AMBOS OS MODOS, --fdr_q 0.05 aplica Benjamini-Hochberg sobre o mapa
+e contorna em preto as células significantes.
+
+Frequências: cobre 4-14 Hz (fase) x 30-260 Hz (amplitude), abrangendo
+os três pares de uma vez. O argumento --par apenas decide qual quadrante
+é usado para extrair o z do pico e classificar o cluster FDR.
 
 Uso:
-    # Modo lote: um PNG por 'Candidato robusto' do refinamento
+    # Modo lote para theta_hg:
     python comodulogram.py --csv resultados_refinados.csv \
-        --pasta_ns2 "../Basal antes da infusao" \
-        --saida_dir comodulogramas --n_surr 200
+        --pasta_ns2 "../Basal" --par theta_hg --saida_dir comodulogramas_hg
 
-    # Só os N melhores por z_score_refinado da triagem
-    python comodulogram.py --csv resultados_refinados.csv \
-        --pasta_ns2 "../Basal antes da infusao" --top_n 10
-
-    # Outro veredito (ex.: revisar os de ruído comum suspeito)
-    python comodulogram.py --csv resultados_refinados.csv \
-        --pasta_ns2 "../Basal antes da infusao" \
-        --veredito_prefixo "Revisar"
-
-    # Janela única, canal 17 (índice; chan18), janela 205-215s
-    python comodulogram.py --arquivo "../Basal antes da infusao/20240708-123605-003.ns2" \
-        --canal 17 --inicio 205 --fim 215
+    # Janela única, theta_hfo, notch 60 Hz:
+    python comodulogram.py --arquivo "../Basal/sessao.ns2" \
+        --canal 17 --inicio 205 --fim 215 --par theta_hfo --notch 60
 
 Requer: neo, numpy, scipy, pandas, matplotlib
 """
@@ -61,7 +45,24 @@ from scipy import ndimage
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from ns2_utils import le_ns2, carrega_dados, fatia_janela
+from triagem_pac import BAND_PAIRS
+
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+except Exception:
+    pass
+
+# Grelha de frequencias: cobre os 3 pares em uma unica passagem
+# fase: 4-14 Hz (theta e suas bordas)
+# amp:  30-260 Hz (gamma + HG + HFO)
+FASES_DEFAULT = np.arange(4, 15, 1)            # 11 pontos
+AMPS_DEFAULT  = np.concatenate([               # grade mais densa onde importa
+    np.arange(30,  80,  5),                    # Gamma: 10 pts
+    np.arange(80,  155, 5),                    # HG:    15 pts
+    np.arange(155, 265, 10),                   # HFO:   11 pts
+])                                             # total 36 pts
 
 
 # ==========================================
@@ -214,25 +215,26 @@ def bh_fdr_mapa(p_mapa, alpha=0.05):
     return sig.reshape(forma)
 
 
-def resume_cluster_fdr(mascara_sig, fases_freq, amps_freq,
-                       theta_band=(4, 8), gamma_band=(30, 80)):
+def resume_cluster_fdr(mascara_sig, fases_freq, amps_freq, par="theta_gamma"):
     """
-    Quantifica o PADRÃO das células significativas: acoplamento genuíno e
-    estreito ocupa POUCAS células, mas concentradas no quadrante Theta-Gamma;
-    transientes ritmados espalham células significativas por várias amplitudes
-    (a "coluna" de 8 Hz). O discriminador é a fração de células significativas
-    dentro de ΘΓ (frac_sig_tg), não o tamanho do cluster.
+    Quantifica o padrao das celulas significativas dentro do quadrante
+    do par ativo (nao sempre Theta-Gamma). O discriminador e' a fracao
+    de celulas sig dentro do quadrante correto (frac_sig_par).
     """
+    cfg = BAND_PAIRS.get(par, BAND_PAIRS["theta_gamma"])
+    fase_band = cfg["fase"]
+    amp_band  = cfg["amp"]
+
     n_sig = int(mascara_sig.sum())
     if n_sig == 0:
-        return {"n_sig": 0, "n_sig_tg": 0, "frac_sig_tg": 0.0,
+        return {"n_sig": 0, "n_sig_par": 0, "frac_sig_par": 0.0,
                 "maior_cluster": 0}
 
-    mask_tg = ((fases_freq[None, :] >= theta_band[0]) &
-               (fases_freq[None, :] <= theta_band[1]) &
-               (amps_freq[:, None] >= gamma_band[0]) &
-               (amps_freq[:, None] <= gamma_band[1]))
-    n_sig_tg = int((mascara_sig & mask_tg).sum())
+    mask_par = ((fases_freq[None, :] >= fase_band[0]) &
+                (fases_freq[None, :] <= fase_band[1]) &
+                (amps_freq[:, None]  >= amp_band[0])  &
+                (amps_freq[:, None]  <= amp_band[1]))
+    n_sig_par = int((mascara_sig & mask_par).sum())
 
     rotulos, _ = ndimage.label(mascara_sig)
     maior_cluster = 0
@@ -241,16 +243,16 @@ def resume_cluster_fdr(mascara_sig, fases_freq, amps_freq,
                                range(1, rotulos.max() + 1))
         maior_cluster = int(np.max(tamanhos))
 
-    return {"n_sig": n_sig, "n_sig_tg": n_sig_tg,
-            "frac_sig_tg": n_sig_tg / n_sig,
+    return {"n_sig": n_sig, "n_sig_par": n_sig_par,
+            "frac_sig_par": n_sig_par / n_sig,
             "maior_cluster": maior_cluster}
 
 
-def z_pico_theta_gamma(z_mapa, fases_freq, amps_freq,
-                       theta_band=(4, 8), gamma_band=(30, 80)):
-    """Maior z dentro do retângulo clássico Theta-Gamma + onde ele ocorre."""
-    mask_fase = (fases_freq >= theta_band[0]) & (fases_freq <= theta_band[1])
-    mask_amp = (amps_freq >= gamma_band[0]) & (amps_freq <= gamma_band[1])
+def z_pico_par(z_mapa, fases_freq, amps_freq, par="theta_gamma"):
+    """Maior z dentro do quadrante do par ativo + onde ocorre."""
+    cfg = BAND_PAIRS.get(par, BAND_PAIRS["theta_gamma"])
+    mask_fase = (fases_freq >= cfg["fase"][0]) & (fases_freq <= cfg["fase"][1])
+    mask_amp  = (amps_freq  >= cfg["amp"][0])  & (amps_freq  <= cfg["amp"][1])
     sub = z_mapa[np.ix_(mask_amp, mask_fase)]
     ii, jj = np.unravel_index(np.argmax(sub), sub.shape)
     return (
@@ -260,86 +262,23 @@ def z_pico_theta_gamma(z_mapa, fases_freq, amps_freq,
     )
 
 
-def classifica_pico_por_vizinhanca(z_mapa, f_pico_hz, a_pico_hz, fases_freq, amps_freq,
-                                    limiar_queda=0.6):
-    """
-    CAMADA 3 - AUDITORIA DE ESPALHAMENTO ESPECTRAL (Domínio da Frequência).
-
-    Redes biológicas têm variância intrínseca: modulação ocupa uma BANDA
-    contígua (ex: 60-80 Hz), não uma frequência hiperespecífica.
-    Artefatos e ruído de alta frequência produzem pixels isolados.
-
-    Args:
-        z_mapa: matriz 2D (n_amps x n_fases).
-        f_pico_hz, a_pico_hz: coordenadas do pico.
-        fases_freq, amps_freq: arrays de frequências.
-        limiar_queda: queda percentual mínima (0.6 = 60%) para considerar pixel isolado.
-
-    Returns:
-        dict com:
-          - 'pixel_isolado': bool
-          - 'pico_z': z do pixel de pico
-          - 'queda_media': queda média em relação aos 8 vizinhos
-          - 'n_vizinhos_significativos': vizinhos dentro do limiar
-    """
-    # Encontra índice do pico mais próximo das coordenadas Hz
-    i_fase = np.argmin(np.abs(fases_freq - f_pico_hz))
-    i_amp = np.argmin(np.abs(amps_freq - a_pico_hz))
-
-    if (i_amp >= z_mapa.shape[0]) or (i_fase >= z_mapa.shape[1]):
-        return {"pixel_isolado": True, "pico_z": 0.0, "queda_media": 0.0,
-                "n_vizinhos_significativos": 0}
-
-    pico_z = z_mapa[i_amp, i_fase]
-    if pico_z <= 0:
-        return {"pixel_isolado": True, "pico_z": pico_z, "queda_media": 0.0,
-                "n_vizinhos_significativos": 0}
-
-    # 8-vizinhos
-    vizinhos_vals = []
-    for di in [-1, 0, 1]:
-        for dj in [-1, 0, 1]:
-            if di == 0 and dj == 0:
-                continue
-            ni, nj = i_amp + di, i_fase + dj
-            if 0 <= ni < z_mapa.shape[0] and 0 <= nj < z_mapa.shape[1]:
-                vizinhos_vals.append(z_mapa[ni, nj])
-
-    if not vizinhos_vals:
-        return {"pixel_isolado": True, "pico_z": pico_z, "queda_media": 1.0,
-                "n_vizinhos_significativos": 0}
-
-    quedas = [(pico_z - v) / pico_z if pico_z > 0 else 1.0 for v in vizinhos_vals]
-    queda_media = float(np.mean(quedas))
-    n_vizinhos_significativos = int(sum(1 for q in quedas if q < limiar_queda))
-
-    # Pixel é isolado se a queda média for > 60% (vizinhos muito menores)
-    pixel_isolado = queda_media > limiar_queda
-
-    return {
-        "pixel_isolado": pixel_isolado,
-        "pico_z": float(pico_z),
-        "queda_media": queda_media,
-        "n_vizinhos_significativos": n_vizinhos_significativos,
-    }
-
-
 # ==========================================
 # VISUALIZAÇÃO
 # ==========================================
 
 def plota_comodulograma_z(z_mapa, fases_freq, amps_freq, titulo, caminho_png,
-                          theta_band=(4, 8), gamma_band=(30, 80), mascara_fdr=None):
+                          par="theta_gamma", mascara_fdr=None):
     """
-    Heatmap divergente (RdBu_r, centro em z=0): vermelho = acoplamento
-    acima do acaso, azul = abaixo, claro = nada. O piso da escala é ±1
-    para não estourar quando o mapa todo for ruído puro.
-    mascara_fdr: se informado, contorna em preto as células significantes
-    após a correção Benjamini-Hochberg sobre o mapa.
+    Heatmap divergente (RdBu_r, centro em z=0). Destaca em tracejado branco
+    o quadrante do par ativo (nao sempre Theta-Gamma).
     """
+    cfg = BAND_PAIRS.get(par, BAND_PAIRS["theta_gamma"])
+    fase_band = cfg["fase"]
+    amp_band  = cfg["amp"]
+
     vmax = max(float(np.max(np.abs(z_mapa))), 1.0)
 
-    fig, ax = plt.subplots(figsize=(9, 6))
+    fig, ax = plt.subplots(figsize=(10, 7))
     X, Y = np.meshgrid(fases_freq, amps_freq)
     pcm = ax.pcolormesh(X, Y, z_mapa, shading="auto", cmap="RdBu_r",
                         norm=mcolors.TwoSlopeNorm(vmin=-vmax, vcenter=0.0, vmax=vmax))
@@ -350,16 +289,25 @@ def plota_comodulograma_z(z_mapa, fases_freq, amps_freq, titulo, caminho_png,
         ax.contour(X, Y, mascara_fdr.astype(float), levels=[0.5],
                    colors="black", linewidths=1.6)
 
-    # Caixa tracejada marcando o quadrante Theta-Gamma clássico
-    for x in theta_band:
-        ax.axvline(x, color="white", linestyle="--", linewidth=0.8, alpha=0.6)
-    for y in gamma_band:
-        ax.axhline(y, color="white", linestyle="--", linewidth=0.8, alpha=0.6)
+    # Quadrante do par ativo (tracejado branco)
+    for x in fase_band:
+        ax.axvline(x, color="white", linestyle="--", linewidth=0.9, alpha=0.7)
+    for y in amp_band:
+        ax.axhline(y, color="white", linestyle="--", linewidth=0.9, alpha=0.7)
+
+    # Linhas horizontais separando os 3 pares (cinza claro)
+    for sep in [80, 150]:
+        if sep <= amps_freq[-1]:
+            ax.axhline(sep, color="#cccccc", linestyle=":", linewidth=0.7, alpha=0.5)
+    ax.text(fases_freq[-1] * 0.98, 55,  "Gamma",  color="#ff7f0e", ha="right", fontsize=8)
+    ax.text(fases_freq[-1] * 0.98, 110, "HG",     color="#9467bd", ha="right", fontsize=8)
+    if amps_freq[-1] > 150:
+        ax.text(fases_freq[-1] * 0.98, 200, "HFO", color="#e377c2", ha="right", fontsize=8)
 
     ax.set_title(titulo, fontsize=12)
-    ax.set_xlabel("Frequência da Fase (Hz)", fontsize=11)
-    ax.set_ylabel("Frequência da Amplitude (Hz)", fontsize=11)
-    ax.set_xticks(fases_freq)
+    ax.set_xlabel("Frequencia da Fase (Hz)", fontsize=11)
+    ax.set_ylabel("Frequencia da Amplitude (Hz)", fontsize=11)
+    ax.set_xticks(fases_freq[::2])
     ax.set_yticks(np.arange(30, amps_freq[-1] + 1, 20))
 
     fig.tight_layout()
@@ -375,10 +323,16 @@ def roda_lote(args):
     print(f"Lendo {args.csv} ...")
     df = pd.read_csv(args.csv)
 
+    # Filtra por par se especificado
+    if args.par and "par" in df.columns:
+        df = df[df["par"] == args.par].copy()
+        print(f"  -> {len(df)} candidatos do par '{args.par}'")
+    elif args.par and "par" not in df.columns:
+        print(f"  [info] Coluna 'par' nao encontrada; usando todos os candidatos.")
+
     if "veredito" in df.columns and args.veredito_prefixo:
         df = df[df["veredito"].astype(str).str.startswith(args.veredito_prefixo)].copy()
-    print(f"  -> {len(df)} candidatos após filtro de veredito "
-          f"('{args.veredito_prefixo}')")
+    print(f"  -> {len(df)} candidatos apos filtro de veredito ('{args.veredito_prefixo}')")
 
     if args.top_n:
         df = df.nlargest(args.top_n, "z_score_refinado")
@@ -390,9 +344,10 @@ def roda_lote(args):
 
     os.makedirs(args.saida_dir, exist_ok=True)
 
-    fases_freq = np.arange(4, 15, 1)
-    amps_freq = np.arange(30, 155, 5)
+    fases_freq = FASES_DEFAULT
+    amps_freq  = AMPS_DEFAULT
     rng = np.random.default_rng(42)
+    par_ativo = args.par
 
     resumo = []
     for arquivo, grupo in df.groupby("arquivo"):
@@ -418,51 +373,53 @@ def roda_lote(args):
                     retorna_mi=True,
                 )
             else:
-                z_mapa, mi_obs_mapa, _ = calcula_comodulograma_z(
+                z_mapa = calcula_comodulograma_z(
                     lfp, fs, fases_freq, amps_freq,
                     n_surr=args.n_surr, rng=rng, notch_hz=args.notch,
-                    retorna_mi=True,
                 )
-            z_pico, f_pico, a_pico = z_pico_theta_gamma(z_mapa, fases_freq, amps_freq)
-            # MI bruto (KL-MI, sem normalizar) na célula do pico ΘΓ
+            z_pico, f_pico, a_pico = z_pico_par(z_mapa, fases_freq, amps_freq, par=par_ativo)
+            
+            # MI bruto na celula do pico do par ativo
             i_fp = int(np.argmin(np.abs(fases_freq - f_pico)))
-            j_ap = int(np.argmin(np.abs(amps_freq - a_pico)))
-            mi_pico = float(mi_obs_mapa[j_ap, i_fp])
+            j_ap = int(np.argmin(np.abs(amps_freq  - a_pico)))
+            mi_pico = float(mi_obs_mapa[j_ap, i_fp]) if args.fdr_q else float('nan')
 
             mascara_fdr = None
             info_fdr = None
             if args.fdr_q:
                 p_mapa = p_valores_por_celula(mi_obs_mapa, mi_surr_mapa)
                 mascara_fdr = bh_fdr_mapa(p_mapa, alpha=args.fdr_q)
-                info_fdr = resume_cluster_fdr(mascara_fdr, fases_freq, amps_freq)
+                info_fdr = resume_cluster_fdr(mascara_fdr, fases_freq, amps_freq,
+                                               par=par_ativo)
                 if info_fdr["n_sig"] == 0:
                     classe_fdr = "nada sobrevive ao FDR"
-                elif (info_fdr["n_sig"] >= 2
-                      and info_fdr["frac_sig_tg"] >= 0.5):
-                    classe_fdr = "concentrado em ΘΓ"
+                elif info_fdr["n_sig"] >= 2 and info_fdr["frac_sig_par"] >= 0.5:
+                    classe_fdr = f"concentrado em {par_ativo}"
                 else:
-                    classe_fdr = "esparso/fora de ΘΓ"
+                    classe_fdr = f"esparso/fora de {par_ativo}"
 
             stem = os.path.splitext(arquivo)[0]
-            nome_png = f"{stem}_{row.canal}_{row.janela_ini_s:g}-{row.janela_fim_s:g}s_zcomodo.png"
+            nome_png = (f"{stem}_{row.canal}_{row.janela_ini_s:g}-"
+                        f"{row.janela_fim_s:g}s_{par_ativo}_zcomodo.png")
             caminho_png = os.path.join(args.saida_dir, nome_png)
 
-            titulo = (f"{row.canal} @ {row.janela_ini_s:g}–{row.janela_fim_s:g}s — {arquivo}\n"
-                      f"pico ΘΓ: z={z_pico:.2f} ({f_pico:g} Hz × {a_pico:g} Hz)")
-            if args.fdr_q:
-                titulo += (f"\nFDR q={args.fdr_q:g}: {info_fdr['n_sig']} células sig "
-                           f"({info_fdr['n_sig_tg']} em ΘΓ), maior cluster="
-                           f"{info_fdr['maior_cluster']} — {classe_fdr}")
+            titulo = (f"{row.canal} @ {row.janela_ini_s:g}-{row.janela_fim_s:g}s | {arquivo}\n"
+                      f"par: {par_ativo} | pico z={z_pico:.2f} ({f_pico:g} Hz x {a_pico:g} Hz)")
+            if args.fdr_q and info_fdr:
+                titulo += (f"\nFDR q={args.fdr_q:g}: {info_fdr['n_sig']} celulas sig "
+                           f"({info_fdr['n_sig_par']} no quadrante), "
+                           f"maior cluster={info_fdr['maior_cluster']} | {classe_fdr}")
             plota_comodulograma_z(z_mapa, fases_freq, amps_freq, titulo, caminho_png,
-                                  mascara_fdr=mascara_fdr)
+                                  par=par_ativo, mascara_fdr=mascara_fdr)
 
             linha_resumo = {
                 "arquivo": arquivo,
                 "canal": row.canal,
                 "janela_ini_s": row.janela_ini_s,
                 "janela_fim_s": row.janela_fim_s,
-                "z_score_refinado": row.z_score_refinado,
-                "z_pico_theta_gamma": z_pico,
+                "par": par_ativo,
+                "z_score_refinado": getattr(row, 'z_score_refinado', float('nan')),
+                "z_pico_par": z_pico,
                 "fase_pico_hz": f_pico,
                 "amp_pico_hz": a_pico,
                 "mi_pico": mi_pico,
@@ -471,28 +428,28 @@ def roda_lote(args):
             if args.fdr_q:
                 linha_resumo.update({
                     "n_sig_fdr": info_fdr["n_sig"],
-                    "n_sig_fdr_theta_gamma": info_fdr["n_sig_tg"],
+                    "n_sig_fdr_par": info_fdr["n_sig_par"],
                     "maior_cluster_fdr": info_fdr["maior_cluster"],
                     "classe_fdr": classe_fdr,
                 })
             resumo.append(linha_resumo)
 
             sufixo = f" | FDR: {classe_fdr} ({info_fdr['n_sig']} células)" if args.fdr_q else ""
-            print(f"  [{n_i}/{len(grupo)}] {nome_png}  (pico ΘΓ z={z_pico:.2f}{sufixo})", end="\r")
+            print(f"  [{n_i}/{len(grupo)}] {nome_png}  (pico {par_ativo} z={z_pico:.2f}{sufixo})", end="\r")
 
-    resumo_df = pd.DataFrame(resumo).sort_values("z_pico_theta_gamma", ascending=False)
+    resumo_df = pd.DataFrame(resumo).sort_values("z_pico_par", ascending=False)
     caminho_resumo = os.path.join(args.saida_dir, "resumo_comodulogramas.csv")
     resumo_df.to_csv(caminho_resumo, index=False)
 
-    print(f"\n\n{len(resumo_df)} comodulogramas salvos em {args.saida_dir}/")
+    print(f"\n{len(resumo_df)} comodulogramas salvos em {args.saida_dir}/")
     print(f"Resumo salvo: {caminho_resumo}")
     if args.fdr_q and "classe_fdr" in resumo_df.columns:
-        print("\nDistribuição das classes FDR:")
+        print("\nDistribuicao das classes FDR:")
         print(resumo_df["classe_fdr"].value_counts().to_string())
-    print("\nTop 10 por pico z dentro do quadrante Theta-Gamma:")
+    print(f"\nTop 10 por pico z no quadrante {par_ativo}:")
     print(resumo_df.head(10)[[
         "canal", "janela_ini_s", "janela_fim_s",
-        "z_pico_theta_gamma", "fase_pico_hz", "amp_pico_hz", "png"
+        "z_pico_par", "fase_pico_hz", "amp_pico_hz", "png"
     ]].to_string(index=False))
 
 
@@ -511,11 +468,12 @@ def roda_janela_unica(args):
     lfp_ativo = dados_janela[:, args.canal].astype(float)
     nome_canal = canal_ids[args.canal] if args.canal < len(canal_ids) else args.canal
 
-    fases_freq = np.arange(4, 15, 1)
-    amps_freq = np.arange(30, 155, 5)
+    fases_freq = FASES_DEFAULT
+    amps_freq  = AMPS_DEFAULT
+    par_ativo  = args.par
 
-    print(f"Calculando o mapa z-scoredo para o canal {nome_canal} "
-          f"({args.inicio:.0f}-{args.fim:.0f}s) ...")
+    print(f"Calculando mapa z-scoredo para canal {nome_canal} "
+          f"({args.inicio:.0f}-{args.fim:.0f}s) | par={par_ativo} ...")
     if args.fdr_q:
         z_mapa, mi_obs_mapa, mi_surr_mapa = calcula_comodulograma_z(
             lfp_ativo, fs, fases_freq, amps_freq,
@@ -528,31 +486,31 @@ def roda_janela_unica(args):
             n_surr=args.n_surr, rng=np.random.default_rng(42), notch_hz=args.notch,
         )
 
-    z_pico, f_pico, a_pico = z_pico_theta_gamma(z_mapa, fases_freq, amps_freq)
-    titulo = (f"Comodulograma Theta-Gamma (z vs surrogates)\n"
+    z_pico, f_pico, a_pico = z_pico_par(z_mapa, fases_freq, amps_freq, par=par_ativo)
+    titulo = (f"Comodulograma (z vs surrogates) | par={par_ativo}\n"
               f"Canal {nome_canal}, {os.path.basename(args.arquivo)}, "
-              f"{args.inicio:.0f}-{args.fim:.0f}s — pico ΘΓ: z={z_pico:.2f}")
+              f"{args.inicio:.0f}-{args.fim:.0f}s | pico z={z_pico:.2f} "
+              f"({f_pico:g}x{a_pico:g} Hz)")
 
     mascara_fdr = None
     if args.fdr_q:
         p_mapa = p_valores_por_celula(mi_obs_mapa, mi_surr_mapa)
         mascara_fdr = bh_fdr_mapa(p_mapa, alpha=args.fdr_q)
-        info = resume_cluster_fdr(mascara_fdr, fases_freq, amps_freq)
+        info = resume_cluster_fdr(mascara_fdr, fases_freq, amps_freq, par=par_ativo)
         if info["n_sig"] == 0:
             classe = "nada sobrevive ao FDR"
-        elif info["n_sig"] >= 2 and info["frac_sig_tg"] >= 0.5:
-            classe = "concentrado em ΘΓ"
+        elif info["n_sig"] >= 2 and info["frac_sig_par"] >= 0.5:
+            classe = f"concentrado em {par_ativo}"
         else:
-            classe = "esparso/fora de ΘΓ"
-        titulo += (f"\nFDR q={args.fdr_q:g}: {info['n_sig']} células sig "
-                   f"({info['n_sig_tg']} em ΘΓ), maior cluster="
-                   f"{info['maior_cluster']} — {classe}")
+            classe = f"esparso/fora de {par_ativo}"
+        titulo += (f"\nFDR q={args.fdr_q:g}: {info['n_sig']} celulas sig "
+                   f"({info['n_sig_par']} no quadrante) | {classe}")
         print(f"FDR q={args.fdr_q:g}: {info}")
 
-    plota_comodulograma_z(z_mapa, fases_freq, amps_freq, titulo,
-                          args.saida_png or "comodulograma_janela_unica.png",
-                          mascara_fdr=mascara_fdr)
-    print(f"Pico no quadrante ΘΓ: z={z_pico:.2f} ({f_pico:g} Hz × {a_pico:g} Hz)")
+    caminho_png = args.saida_png or f"comodulograma_{par_ativo}_janela_unica.png"
+    plota_comodulograma_z(z_mapa, fases_freq, amps_freq, titulo, caminho_png,
+                          par=par_ativo, mascara_fdr=mascara_fdr)
+    print(f"Pico no quadrante {par_ativo}: z={z_pico:.2f} ({f_pico:g} Hz x {a_pico:g} Hz)")
     plt.show()
 
 
@@ -574,6 +532,12 @@ def main():
                     help="(modo lote) CSV gerado pelo refina_candidatos.py")
     ap.add_argument("--pasta_ns2", default=".",
                     help="(modo lote) Pasta com os .ns2 originais")
+    ap.add_argument("--par",
+                    default="theta_gamma",
+                    choices=list(BAND_PAIRS.keys()),
+                    help="Par a destacar no mapa: theta_gamma (default), "
+                         "theta_hg, theta_hfo. Nao altera o calculo — "
+                         "apenas o quadrante marcado e o z do pico reportado.")
     ap.add_argument("--veredito_prefixo", default="Candidato robusto",
                     help="(modo lote) Prefixo do veredito a filtrar "
                          "(default: 'Candidato robusto'; vazio = todos)")

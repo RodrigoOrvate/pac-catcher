@@ -1,7 +1,7 @@
 # SCRIPT TABLE OF CONTENTS — Acoplamento theta-gamma
 
 Este é o repositório central de **código** do grupo de estudos
-`C:\acoplamento_theta-gamma\`. Ele é compartilhado por todos os estudos e
+`C:\acoplamento_theta-gamma\`. Compartilhado por todos os estudos e
 sessões (MTESC04/05 × NOCI/LAC). Nada de específico de sessão mora aqui —
 nem dados, nem saídas, nem listas de vencedores (entram por CLI/CSV).
 
@@ -9,9 +9,9 @@ nem dados, nem saídas, nem listas de vencedores (entram por CLI/CSV).
 acoplamento_theta-gamma/
 ├── SCRIPT/          ← ESTA pasta: código único + documentação (você está aqui)
 ├── MTESC04_NOCI/
-├── MTESC04_LAC/
+├── MTESC05_LAC/
 ├── MTESC05_NOCI/
-└── MTESC05_LAC/     ← cada estudo tem sessões com dados, vídeo e RESULTADOS/
+└── EXPLORACAO_OBJETOS/
 ```
 
 ## Leitura rápida — qual documento ler?
@@ -28,39 +28,75 @@ acoplamento_theta-gamma/
 
 ```
 SCRIPT/
-├── README.md                  ← este guia (índice geral)
-├── scripts_explicados.md      ← explicação script a script do pipeline
+├── README.md                    ← este guia (índice geral)
+├── scripts_explicados.md        ← explicação script a script do pipeline
 ├── requirements.txt
-├── pipeline/                  ← código do pipeline PAC (deteção/validação)
-│   ├── README_pipeline.md     ← como rodar uma sessão nova
-│   ├── triagem_pac.py          triagem → resultados.csv
-│   ├── refina_candidatos.py    refinamento → resultados_refinados.csv
-│   ├── comodulogram.py         mapas FDR
-│   ├── figura_apresentacao.py  figuras dos vencedores
-│   ├── robustez_parametros.py  robustez + MVL
-│   ├── extrair_picos.py        re-verifica pico (banda restrita + FDR)
-│   ├── ns2_utils.py            leitura compartilhada de .ns2
-│   ├── gerar_relatorio_pdf.py  PDF CSV-driven
-│   └── auditorias/             validação pós-hoc:
-│       ├── audita_transientes.py  audita_segmentos.py
-│       ├── audita_footprint.py    audita_skewness.py
-│       ├── audita_held_out.py     diagnostico_janela.py
-│       ├── audita_harmonico.py    teste de razão harmônica (FOOOF Kuhn)
-│       ├── linha_noise_kuhn.py    3 configs de limpeza de linha (60Hz)
-│       └── compara_preprocesso_linha.py comparador gaussiana/cirurgica/hibrido
-└── preditor/                  ← PROJETO NOVO: prever PAC → disparar TTL
-    ├── README_preditor.md     ← contexto, estado e comandos (LER!)
-    ├── analisar_pre_evento.py  extrai os 10 s antes de cada vencedor
-    ├── treinar_preditor.py     RandomForest → modelo_pac.pkl
-    ├── validar_preditor.py     valida com controles reais (LOOCV)
-    ├── prever_pac_tempo_real.py janela deslizante → dispara_ttl()
-    └── modelo_pac.pkl
+├── pipeline/                    ← código do pipeline PAC
+│   ├── README_pipeline.md       ← como rodar uma sessão nova (LER PRIMEIRO)
+│   ├── triagem_pac.py            Etapa 1: varre janelas, 3 pares Θ×Γ/HG/HFO
+│   ├── triagem_pac_mat.py        Wrapper para .mat (sem .ns2) — multi-banda
+│   ├── refina_candidatos.py      Etapa 2: FDR de janela + filtros de artefato
+│   ├── comodulogram.py           Etapa 3: mapas z-scoredos ±notch + FDR do mapa
+│   ├── figura_apresentacao.py    Etapa 7: figuras dos vencedores
+│   ├── robustez_parametros.py    Etapa 7: sweep de parâmetros + MVL
+│   ├── extrair_picos.py          re-verifica pico (banda restrita + FDR)
+│   ├── diagnostico_janela.py     Etapa 5: 5 painéis + MI resp vs Θ×Γ
+│   ├── exploracao_minuto.py      Passo 0: painel visual por minuto
+│   ├── ns2_utils.py              leitura compartilhada de .ns2
+│   ├── adapta_lfp_mat.py         carrega .mat com diagnóstico de escala
+│   ├── gerar_relatorio_pdf.py    PDF CSV-driven
+│   └── auditorias/               validação pós-hoc:
+│       ├── audita_transientes.py    despike + sub-janelas
+│       ├── audita_segmentos.py      localização temporal do acoplamento
+│       ├── audita_footprint.py      pegada espacial (32 canais)
+│       ├── audita_skewness.py       assimetria do theta
+│       ├── audita_held_out.py       validação hold-out
+│       ├── audita_harmonico.py      razão harmônica Θ→Γ (FOOOF Kuhn)
+│       ├── audita_harmonico_hfo.py  razão harmônica Γ→HFO (FOOOF)  ← NOVO
+│       ├── diagnostico_janela.py
+│       ├── linha_noise_kuhn.py      limpeza de linha 60 Hz
+│       └── compara_preprocesso_linha.py
+├── FOOOF/                       ← referência Kuhn et al. 2026 (não é produção)
+├── preditor/                    ← PROJETO: prever PAC → disparar TTL
+│   ├── README_preditor.md       ← contexto, estado e comandos (LER!)
+│   ├── analisar_pre_evento.py
+│   ├── treinar_preditor.py
+│   ├── validar_preditor.py
+│   ├── prever_pac_tempo_real.py
+│   └── modelo_pac.pkl
+└── DADOS_EXEMPLO_LFP_HG_HFO/   ← dados de teste do pipeline multi-banda
+    ├── LFP_HG_HFO.mat           LFP real 300s @1kHz (lfpHG + lfpHFO)
+    └── FLAGS_TRIPLO_NOVO.csv    resultado da triagem: 3 pares, 59 janelas
+```
+
+## Três acoplamentos suportados
+
+O pipeline detecta os três acoplamentos fase-amplitude relevantes em CA1:
+
+| Par | Banda de fase | Banda de amplitude | Estado comportamental |
+|---|---|---|---|
+| `theta_gamma` | Theta 4–8 Hz | Gamma 30–80 Hz | Exploração locomotora |
+| `theta_hg` | Theta 4–8 Hz | High-Gamma 80–150 Hz | Misto |
+| `theta_hfo` | Theta 4–8 Hz | HFO 150–250 Hz | Repouso / SWR-associado |
+
+```bash
+# Varredura completa em .mat (todos os 3 pares, ~8s para 300s de sinal):
+python pipeline/triagem_pac_mat.py --mat DADOS_EXEMPLO_LFP_HG_HFO/LFP_HG_HFO.mat
+
+# Varredura em .ns2 com todos os 3 pares:
+python pipeline/triagem_pac.py --pasta <sessao>/BASAL \
+    --pares theta_gamma theta_hg theta_hfo \
+    --saida <sessao>/RESULTADOS/resultados_triplo.csv
+
+# Auditoria harmônico Gamma→HFO (pós-triagem):
+python pipeline/auditorias/audita_harmonico_hfo.py \
+    --csv FLAGS_TRIPLO_NOVO.csv --mat LFP_HG_HFO.mat --z_corte 3.0
 ```
 
 ## Os dois arquivos "núcleo" de documentação
 
-- **`pipeline/README_pipeline.md`** — guia operacional: como rodar a triagem de
-  PAC numa sessão nova, as etapas, os critérios de validação (5 etapas) e os
+- **`pipeline/README_pipeline.md`** — guia operacional: como rodar a triagem em
+  uma sessão nova, as etapas, os critérios de validação (5 etapas) e os
   parâmetros que mudam por sessão (caminhos, offset vídeo↔ns2, rótulos).
 - **`scripts_explicados.md`** — referência por script: o que cada um faz, por
   que daquela forma (z-score e não MI bruto, 200 surrogates, notch 60 Hz,
@@ -75,25 +111,16 @@ caminhos, offsets), ela entra por CLI/CSV — **nunca editar listas no código**
 ## Pastas de referência (não são código de pipeline)
 
 - **`FOOOF/`** — dados e código de referência de Kuhn et al. 2026
-  (nota 2026-09-05: CA1_example.mat tem lfp 620871x4 int16 @1kHz; mlfp tem NaN — nao usado. LFP_HG_HFO colocado agora e LFP real @1kHz.)
-  (LFP_FOOOF): `.mat` de exemplo (CA1/DG, tetrode 4 ch, 1000 Hz),
-  `rem_noise.m` (implementação MATLAB da limpeza de linha),
-  `Figure_1c.m`, `Example_fitting.ipynb`, `fit.py`, `funcs.py`.
-  Usado por `compara_preprocesso_linha.py` para comparação com
-  dados reais. **Não é código de produção** — os `.mat` carregam o
-  campo `lfp` (não `mlfp`, que tem NaN). Manter para referência
-  e reprodução; não editar.
+  (`fit.py`, `funcs.py`, `CA1_example.mat`, `DG_example.mat`).
+  Usado por `audita_harmonico.py` e `compara_preprocesso_linha.py`.
+  **Não é código de produção** — não editar.
 
-## Projetos dentro do SCRIPT
+- **`preditor/`** — protótipo para prever PAC ~10 s antes e disparar TTL.
+  **Ainda não validado**; ver aviso em `preditor/README_preditor.md`.
 
-1. **Pipeline PAC** (maduro, validado) — ideal para seguir o guia do
-   `pipeline/README_pipeline.md`.
-2. **Preditor PAC + optogenética** (protótipo, `preditor/`) — prever o
-   acoplamento ~10 s antes e disparar um pulso TTL. **Ainda não validado**;
-   ver o aviso no `preditor/README_preditor.md`.
-
-
-## Exemplo LFP_HG_HFO (2026-09-05)
-- Arquivo: `LFP_HG_HFO.mat` | `lfpHG` / `lfpHFO` (float64, (1, 300000), 1kHz)
-- Resultado de exemplo: `300s` de LFP real, usado como dado de teste do pipeline
-- Adaptacao: `carrega_lfp_mat()` le .mat e exporta CSV para pipeline (simula ns2)
+- **`DADOS_EXEMPLO_LFP_HG_HFO/`** — dados de teste do pipeline multi-banda.
+  Contém `LFP_HG_HFO.mat` (LFP real, 300s, 1 kHz) e o CSV de resultado
+  `FLAGS_TRIPLO_NOVO.csv` (59 janelas × 3 pares). Os arquivos anteriores
+  (`FLAGS_LFP_HG_HFO.csv`, `FLAGS_LFP_HG_HFO_CORRIGIDO.csv`,
+  `RESULTADOS_PIPELINE_LFP_HG_HFO.csv`) foram mantidos aqui como histórico —
+  representam resultados com bugs corrigidos em 2026-09-05.

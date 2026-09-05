@@ -56,7 +56,7 @@ import pandas as pd
 import scipy.signal as signal
 
 from comodulogram import (filtra_sinal, aplica_notch, calcula_comodulograma_z,
-                          z_pico_theta_gamma, _mi_de_bin_idx)
+                          z_pico_par, _mi_de_bin_idx, FASES_DEFAULT, AMPS_DEFAULT)
 from ns2_utils import le_ns2, fatia_janela
 from triagem_pac import detecta_transiente, correlacao_gama_ruido, verifica_pixel_isolado
 
@@ -257,18 +257,22 @@ def main():
         # ----------------------------------
         # D. pico do mapa com n_bins=12 e 24 (localização estável?)
         # ----------------------------------
-        fases_freq = np.arange(4, 15, 1)
-        amps_freq = np.arange(30, 155, 5)
+        fases_freq = FASES_DEFAULT
+        amps_freq = AMPS_DEFAULT
         picos_estaveis = []
+        par_nome = row.get("par", "theta_gamma") if isinstance(row, pd.Series) else "theta_gamma"
         for nb in (12, 24):
             z_mapa = calcula_comodulograma_z(lfp, fs, fases_freq, amps_freq,
                                              n_surr=N_SURR, n_bins=nb, rng=rng,
                                              notch_hz=None)  # notch já aplicado
-            z_p, f_p, a_p = z_pico_theta_gamma(z_mapa, fases_freq, amps_freq)
-            estavel = (abs(f_p - f_pico) <= 1.0) and (abs(a_p - a_pico) <= 5.0)
+            z_p, f_p, a_p = z_pico_par(z_mapa, fases_freq, amps_freq, par_nome)
+            if z_p is None:
+                estavel = False
+            else:
+                estavel = (abs(f_p - f_pico) <= 1.0) and (abs(a_p - a_pico) <= 5.0)
             picos_estaveis.append(estavel)
-            print(f"  mapa n_bins={nb}: pico ΘΓ {f_p:g} x {a_p:g} Hz, "
-                  f"z={z_p:.2f}  ({'estável' if estavel else 'DESLOCADO'})")
+            print(f"  mapa n_bins={nb}: pico {par_nome} {f_p if f_p else 0:g} x {a_p if a_p else 0:g} Hz, "
+                  f"z={z_p if z_p else 0:.2f}  ({'estável' if estavel else 'DESLOCADO'})")
             linhas.append({"janela": rotulo, "canal": canal, "par_pico":
                            f"{f_pico:g}x{a_pico:g}", "teste": f"mapa_nb{nb}",
                            "parametro": f"{f_p:g}x{a_p:g}", "z": round(z_p, 2)})
@@ -308,9 +312,13 @@ def main():
         rejeitado_trans = trans_info["transiente_encontrado"]
 
         # ============================================================
-        # CAMADA 4 - REJEIÇÃO POR BANDA LARGA (γ↔ruído correlacionado)
+        # CAMADA 4 - REJEIÇÃO POR BANDA LARGA (amp↔ruído correlacionado)
         # ============================================================
-        banda_info = correlacao_gama_ruido(lfp, fs)
+        banda_info = correlacao_gama_ruido(
+            lfp, fs,
+            theta_band=(f_pico - 1.0, f_pico + 1.0),
+            gamma_band=(a_pico - 5.0, a_pico + 5.0)
+        )
         rejeitado_banda = banda_info["suspeito_banda_larga"]
 
         robusto = (z_min_nb >= 3) and all(picos_estaveis) and not rejeitado_mvl \

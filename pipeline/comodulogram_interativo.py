@@ -30,21 +30,23 @@ from matplotlib.colors import Normalize
 # --- utilitários do pipeline --------------------------------------------------
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from ns2_utils import carrega_dados, fatia_janela
+from triagem_pac import BAND_PAIRS
 from comodulogram import (
     filtra_sinal,
     aplica_notch,
     calcula_comodulograma_z,
     _mi_de_bin_idx,
-    z_pico_theta_gamma,
+    z_pico_par,
     bh_fdr_mapa,
     p_valores_por_celula,
+    FASES_DEFAULT,
+    AMPS_DEFAULT,
 )
 
 # --- constantes ---------------------------------------------------------------
 BANDA_TETA = (4, 8)
-BANDA_GAMMA = (30, 80)
-FASES_FREQ = np.arange(4, 15, 1)   # 4-14 Hz passo 1 Hz (eixo fase)
-AMPS_FREQ = np.arange(30, 105, 5)  # 30-100 Hz passo 5 Hz (eixo amplitude)
+FASES_FREQ = FASES_DEFAULT
+AMPS_FREQ = AMPS_DEFAULT
 N_BINS = 18
 N_SURR = 200
 FDR_Q = 0.05
@@ -115,8 +117,9 @@ def time_series_pac(dados, fs, canais,
                     fases_freq=None, amps_freq=None,
                     n_surr=N_SURR, n_bins=N_BINS,
                     notch_hz=60.0,
-                    max_janelas=0):
-    """Computa MI (z do pico ΘΓ) e theta power em janelas deslizantes.
+                    max_janelas=0,
+                    par_ativo="theta_gamma"):
+    """Computa MI (z do pico do par ativo) e theta power em janelas deslizantes.
 
     Para cada canal e cada janela deslizante:
       - recorta janela do sinal
@@ -143,9 +146,9 @@ def time_series_pac(dados, fs, canais,
       win_inicios  : ndarray (n_janelas,) — índice de início de cada janela
     """
     if fases_freq is None:
-        fases_freq = np.arange(4, 15, 1)
+        fases_freq = FASES_DEFAULT
     if amps_freq is None:
-        amps_freq = np.arange(30, 105, 5)
+        amps_freq = AMPS_DEFAULT
 
     n_total = dados.shape[0]
     win_n = int(win_s * fs)
@@ -202,11 +205,12 @@ def time_series_pac(dados, fs, canais,
                     n_surr=n_surr, n_bins=n_bins,
                     rng=np.random.default_rng(i), notch_hz=None,
                 )
-                z_pico, _, _ = z_pico_theta_gamma(
-                    z_mapa, fases_freq, amps_freq)
+                z_pico, _, _ = z_pico_par(
+                    z_mapa, fases_freq, amps_freq, par=par_ativo)
                 mi_z[ch][i] = z_pico
             except Exception:
                 mi_z[ch][i] = np.nan
+
 
         if (i + 1) % 50 == 0:
             print(f"    janela {i+1}/{n_janelas} ...")
@@ -275,7 +279,8 @@ def plota_sessao_3painel(t_centers, mi_z, theta_power,
                           canal, saida_png,
                           dados, fs, t_inicio_sessao=0.0,
                           comod_geral=None,
-                          nomes_canais=None):
+                          nomes_canais=None,
+                          par_ativo="theta_gamma"):
     """3 painéis (cima→baixo): comodulograma geral | MI time-series | theta power.
 
     Os painéis MI e theta power compartilham o mesmo eixo x (tempo).
@@ -322,10 +327,10 @@ def plota_sessao_3painel(t_centers, mi_z, theta_power,
             t_1min_ini, t_1min_fim = comod_geral
         im = ax_cz.pcolormesh(fases_freq_c, amps_freq_c, z_mapa_plot,
                                shading="auto", cmap="viridis")
-        # marcar pico ΘΓ (sempre no z_mapa completo, não mascarado)
+        # marcar pico do par ativo (sempre no z_mapa completo, não mascarado)
         try:
-            z_pico, fp_pico, fa_pico = z_pico_theta_gamma(
-                z_mapa_full, fases_freq_c, amps_freq_c)
+            z_pico, fp_pico, fa_pico = z_pico_par(
+                z_mapa_full, fases_freq_c, amps_freq_c, par=par_ativo)
             if z_pico is not None and not np.isnan(z_pico):
                 ax_cz.scatter([fp_pico], [fa_pico], s=80, c="red",
                               marker="X", edgecolors="white", linewidths=1.5,
@@ -352,7 +357,7 @@ def plota_sessao_3painel(t_centers, mi_z, theta_power,
     # --- painel 2: MI z-scoredo ----------------------------------------
     ax_mi = axes[1]
     ax_mi.fill_between(t_centers, mi, alpha=0.4, color="coral")
-    ax_mi.plot(t_centers, mi, color="firebrick", lw=0.7, label="MI z (pico ΘΓ)")
+    ax_mi.plot(t_centers, mi, color="firebrick", lw=0.7, label=f"MI z ({par_ativo})")
     ax_mi.axhline(LIMIAR_Z_EVENTO, color="red", ls="--",
                   lw=1, label=f"limiar={LIMIAR_Z_EVENTO}")
     ax_mi.set_ylabel("MI z-scoredo")
@@ -376,7 +381,8 @@ def plota_sessao_3painel(t_centers, mi_z, theta_power,
         lambda event: _on_click(event, fig, t_centers, mi,
                                 theta_power, ch, fs, dados, t_inicio_sessao,
                                 nomes_canais=nomes_canais,
-                                saida_base=os.path.dirname(saida_png)),
+                                saida_base=os.path.dirname(saida_png),
+                                par_ativo=par_ativo),
     )
 
     fig.savefig(saida_png, dpi=150, bbox_inches="tight")
@@ -386,7 +392,8 @@ def plota_sessao_3painel(t_centers, mi_z, theta_power,
 
 
 def _on_click(event, fig, t_centers, mi_z, theta_pow,
-              canal, fs, dados, t_inicio_sessao, nomes_canais, saida_base):
+              canal, fs, dados, t_inicio_sessao, nomes_canais, saida_base,
+              par_ativo="theta_gamma"):
     """Callback de click: recorta 10s em torno do clique e mostra o
     comodulograma detalhado da janela.
 
@@ -443,9 +450,9 @@ def _on_click(event, fig, t_centers, mi_z, theta_pow,
         print(f"  [zoom] erro no comodulograma: {e}")
         return
 
-    z_pico, fp_pico, fa_pico = z_pico_theta_gamma(
-        z_mapa, fases_freq_z, amps_freq_z)
-    # z_pico pode ser None (sem pico ΘΓ) ou nan
+    z_pico, fp_pico, fa_pico = z_pico_par(
+        z_mapa, fases_freq_z, amps_freq_z, par=par_ativo)
+    # z_pico pode ser None (sem pico) ou nan
     if z_pico is None or (isinstance(z_pico, float) and np.isnan(z_pico)):
         fp_pico, fa_pico = None, None
 
@@ -458,9 +465,9 @@ def _on_click(event, fig, t_centers, mi_z, theta_pow,
     ax_zoom.set_xlabel("Fase (Hz)")
     ax_zoom.set_ylabel("Amplitude (Hz)")
     if z_pico is not None and not (isinstance(z_pico, float) and np.isnan(z_pico)):
-        titulo_pico = f"pico ΘΓ z={z_pico:.2f} em {fp_pico:.1f}×{fa_pico:.1f}Hz"
+        titulo_pico = f"pico {par_ativo} z={z_pico:.2f} em {fp_pico:.1f}x{fa_pico:.1f}Hz"
     else:
-        titulo_pico = "(sem pico ΘΓ nesta janela)"
+        titulo_pico = f"(sem pico {par_ativo} nesta janela)"
     ax_zoom.set_title(f"Zoom 10s — {nome_evento}\n{titulo_pico}")
     fig_zoom.colorbar(im, ax=ax_zoom, label="z")
     fig_zoom.tight_layout()
@@ -518,6 +525,9 @@ def parse_args():
                         "PNG. Use este flag se quiser 'mexer' na figura em "
                         "tempo real. Sem o flag, o script apenas gera PNGs "
                         "estáticos (modo headless).")
+    p.add_argument("--par", default="theta_gamma",
+                   choices=list(BAND_PAIRS.keys()),
+                   help="Qual par usar para rastrear o z_pico no time-series (default: theta_gamma)")
     return p.parse_args()
 
 
@@ -565,6 +575,7 @@ def main():
         n_surr=args.n_surr, n_bins=args.n_bins,
         notch_hz=args.notch_hz,
         max_janelas=args.max_janelas,
+        par_ativo=args.par,
     )
 
     # 3. Comodulograma geral em 1 min (janela central) — por canal
@@ -626,7 +637,8 @@ def main():
                              dados=dados, fs=fs,
                              t_inicio_sessao=0.0,
                              comod_geral=comod_geral_por_canal.get(ch),
-                             nomes_canais=ids_canais)
+                             nomes_canais=ids_canais,
+                             par_ativo=args.par)
 
     # 5. CSV de eventos (z > limiar)
     csv_ev = os.path.join(args.saida, f"eventos_{prefixo}.csv")

@@ -91,3 +91,9 @@ caminhos, offsets), ela entra por CLI/CSV — **nunca editar listas no código**
 2. **Preditor PAC + optogenética** (protótipo, `preditor/`) — prever o
    acoplamento ~10 s antes e disparar um pulso TTL. **Ainda não validado**;
    ver o aviso no `preditor/README_preditor.md`.
+
+
+## Exemplo LFP_HG_HFO (2026-09-05)
+- Arquivo: `LFP_HG_HFO.mat` | `lfpHG` / `lfpHFO` (float64, (1, 300000), 1kHz)
+- Resultado de exemplo: `300s` de LFP real, usado como dado de teste do pipeline
+- Adaptacao: `carrega_lfp_mat()` le .mat e exporta CSV para pipeline (simula ns2)

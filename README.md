@@ -75,6 +75,7 @@ caminhos, offsets), ela entra por CLI/CSV — **nunca editar listas no código**
 ## Pastas de referência (não são código de pipeline)
 
 - **`FOOOF/`** — dados e código de referência de Kuhn et al. 2026
+  (nota 2026-09-05: CA1_example.mat tem lfp 620871x4 int16 @1kHz; mlfp tem NaN — nao usado. LFP_HG_HFO colocado agora e LFP real @1kHz.)
   (LFP_FOOOF): `.mat` de exemplo (CA1/DG, tetrode 4 ch, 1000 Hz),
   `rem_noise.m` (implementação MATLAB da limpeza de linha),
   `Figure_1c.m`, `Example_fitting.ipynb`, `fit.py`, `funcs.py`.

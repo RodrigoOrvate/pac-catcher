@@ -507,8 +507,17 @@ robusto é z≈4 durante o grooming puro.
 python audita_harmonico.py --csv "<sessao>/RESULTADOS/vencedores.csv" \\
     --pasta_ns2 "<sessao>/<BASAL>" \\
     --saida "<sessao>/RESULTADOS/harmonico.csv" \\
-    --janela_contexto_s 45
+    --janela_contexto_s 45 \\
+    --modo_preprocesso hibrido --f_linha 60.0
 ```
+
+**Args novos (default retrocompatível):**
+- `--modo_preprocesso {'sem','gaussiana','cirurgica','hibrido'}` — config de
+  limpeza de linha Kuhn et al. 2026. Default `hibrido` (vencedor da
+  comparação: menor erro no sintético EU+BR, preserva fast gamma e knee
+  no `.mat` real). `sem` = sem limpeza (portável para outros países).
+- `--f_linha 60.0` — frequência da rede elétrica (Hz). 60 para Brasil,
+  50 para EUA/Europa. Afeta apenas 60/120/180 Hz (ou 50/100/150).
 
 **Saída:** `harmonico.csv` (rotula cada vencedor com veredito, cf_teta, PLV, skewness).
 

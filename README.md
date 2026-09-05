@@ -45,6 +45,9 @@ SCRIPT/
 │       ├── audita_transientes.py  audita_segmentos.py
 │       ├── audita_footprint.py    audita_skewness.py
 │       ├── audita_held_out.py     diagnostico_janela.py
+│       ├── audita_harmonico.py    teste de razão harmônica (FOOOF Kuhn)
+│       ├── linha_noise_kuhn.py    3 configs de limpeza de linha (60Hz)
+│       └── compara_preprocesso_linha.py comparador gaussiana/cirurgica/hibrido
 └── preditor/                  ← PROJETO NOVO: prever PAC → disparar TTL
     ├── README_preditor.md     ← contexto, estado e comandos (LER!)
     ├── analisar_pre_evento.py  extrai os 10 s antes de cada vencedor
@@ -68,6 +71,17 @@ SCRIPT/
 **Sessões têm dados e saídas; o `SCRIPT` central tem código.**
 Se um script precisar de informação específica da sessão (vencedores,
 caminhos, offsets), ela entra por CLI/CSV — **nunca editar listas no código**.
+
+## Pastas de referência (não são código de pipeline)
+
+- **`FOOOF/`** — dados e código de referência de Kuhn et al. 2026
+  (LFP_FOOOF): `.mat` de exemplo (CA1/DG, tetrode 4 ch, 1000 Hz),
+  `rem_noise.m` (implementação MATLAB da limpeza de linha),
+  `Figure_1c.m`, `Example_fitting.ipynb`, `fit.py`, `funcs.py`.
+  Usado por `compara_preprocesso_linha.py` para comparação com
+  dados reais. **Não é código de produção** — os `.mat` carregam o
+  campo `lfp` (não `mlfp`, que tem NaN). Manter para referência
+  e reprodução; não editar.
 
 ## Projetos dentro do SCRIPT
 

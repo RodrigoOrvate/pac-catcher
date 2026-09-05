@@ -299,15 +299,33 @@ sintético replica o cenário "harmônico 3x travado" do teste principal
       de 0.015 é **consistente**, não flutuação estocástica.
       **Conclusão**: o limiar 0.15 rejeita cenário D mesmo com
       Kuhn Gauss-only, de forma estável.
-- [ ] **Re-implementar Kuhn corretamente** (FEITO: subtrair
+- [x] **Re-implementar Kuhn corretamente** (FEITO: subtrair
       `_peak_fit` em log10, não modelo completo). Resultado:
       erro 0.265→0.165 (38% de melhoria). Ainda >0.15 por
       causa do artefato motor 45Hz (não é ruído de linha).
-- [ ] **Integrar `remove_pico_kuhn` no `extrai_cf_teta_fooof`**
-      do `audita_harmonico.py`. Usar `f=60Hz` (rede brasileira),
-      não 50Hz do artigo europeu. Remover SOMENTE ruído de linha
-      (60 + 120 + 180 Hz). **NÃO remover harmônicos de teta** —
-      isso seria circular (apaga o sinal que o script detecta).
+- [x] **Integrar `remove_pico_kuhn` no `extrai_cf_teta_fooof`**
+      do `audita_harmonico.py` (**FEITO 05/09/2026**). Módulo:
+      `pipeline/auditorias/linha_noise_kuhn.py`. Default de produção
+      `modo_preprocesso='hibrido'` (port fiel de `rem_noise.m` ×3
+      harmônicos). Resultados da comparação:
+
+      | Modo | Sintético EU | Sintético BR | Real CA1 | Real DG |
+      |------|-------------|-------------|----------|---------|
+      | sem  | 0.2648      | 0.2194      | 0.0752   | 0.0339  |
+      | gaussiana | 0.1647 | 0.1676      | 0.0752   | 0.0339  |
+      | cirurgica | 0.2545 | 0.1633      | 0.0752   | 0.0339  |
+      | **hibrido** | **0.1632** | **0.1633** | **0.0752** | **0.0339** |
+
+      - hibrido vence no sintético EU (0.1632 vs gaussiana 0.1647,
+        cirurgica 0.2545). cirurgica falha em EU porque só limpa
+        50Hz e deixa 100Hz.
+      - Real: indiferente entre modos (CA1 spike fraco ~1dB,
+        DG sem linha visível). Fast gamma 60–100 Hz e knee
+        **preservados** (figuras em `pipeline/auditorias/figuras/`).
+      - Ferramenta: `pipeline/auditorias/compara_preprocesso_linha.py`
+
+      Regra: remover SOMENTE ruído de linha (60 + 120 + 180 Hz).
+      **NÃO remover harmônicos de teta** — circular.
 - [ ] **Refatorar cenário D**: substituir artefato motor em 45Hz
       (pico butterworth estreito, irreal) por banda larga 150-450Hz
       (EMG realista, conforme proxy do pac-catcher). Pico em 45Hz

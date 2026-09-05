@@ -64,12 +64,15 @@ except Exception:
 
 from ns2_utils import carrega_dados, fatia_janela
 from audita_skewness import theta_skewness_for_window  # REUSO, nao duplicacao
+from linha_noise_kuhn import aplica_modo  # REUSO: limpeza de linha Kuhn (60Hz)
 
 
 def extrai_cf_teta_fooof(sinal, fs, fit_range=(4, 100), theta_range=(4, 12),
                           theta_cf_bounds=(5, 9.5), theta_bw_limits=(2, 5),
                           min_peak_height=0.05, nperseg_s=1.2,
-                          aperiodic_mode='knee', max_n_peaks=4):
+                          aperiodic_mode='knee', max_n_peaks=4,
+                          preprocessar_linha=True, modo_preprocesso='hibrido',
+                          f_linha=60.0):
     """
     Estima a frequencia central (cf) de teta via FOOOF (metodo modificado
     de Kuhn et al. 2026, LFP_FOOOF).
@@ -107,6 +110,14 @@ def extrai_cf_teta_fooof(sinal, fs, fit_range=(4, 100), theta_range=(4, 12),
                    divergir e exige os modelos 2exp/3exp do artigo.
         theta_range, theta_cf_bounds: usados APENAS para filtrar picos
                    ja' ajustados (passo 2), NAO para restringir o fit.
+        preprocessar_linha: se True (default), limpa o ruido de linha antes
+                   do fit. modo_preprocesso: 'gaussiana' (subtrai a
+                   gaussiana em log10 em 60/120/180) | 'cirurgica' (repoe a
+                   banda ±2Hz pela 1/f so em 60Hz) | 'hibrido' (default;
+                   repoe banda em 60/120/180 — vencedor da comparacao
+                   compara_preprocesso_linha.py, menor erro sintetico sem
+                   mutilar oscilacoes reais). f_linha: frequencia da rede
+                   (BR=60).
     """
     nperseg = int(nperseg_s * fs)
     # nfft=4000 (zero-padding): segue Kuhn et al. 2026 (LFP_FOOOF).
@@ -118,6 +129,14 @@ def extrai_cf_teta_fooof(sinal, fs, fit_range=(4, 100), theta_range=(4, 12),
     freqs, psd = welch(sinal, fs=fs, window='hann',
                         nperseg=nperseg, noverlap=nperseg // 2,
                         nfft=nfft)
+
+    # Limpeza de linha (receita Kuhn) ANTES do fit: a linha de 60Hz (BR)
+    # cai dentro do gamma e, se o FOOOF a tratar como pico, infla o erro e
+    # rouba vaga de pico. Modo default 'gaussiana' (subtrai a gaussiana em
+    # log10 em 60/120/180); 'cirurgica'/'hibrido' disponiveis para comparar.
+    if preprocessar_linha:
+        psd = aplica_modo(freqs, psd, fs, modo_preprocesso,
+                          f_linha=f_linha, verbose=False)
 
     # max_n_peaks=4: artigo detecta slow_gamma, fast_gamma, ripples etc.
     # no mesmo fit. Restringir a 1 so' faz sentido na hora de extrair por
@@ -134,12 +153,14 @@ def extrai_cf_teta_fooof(sinal, fs, fit_range=(4, 100), theta_range=(4, 12),
     except Exception as e:
         # FOOOF pode falhar em sinais fracos/sem pico detectavel
         return {"cf_teta": None, "teta_detectado": False,
-                "erro_ajuste": None, "qualidade_ok": False}
+                "erro_ajuste": None, "qualidade_ok": False,
+                "n_picos": 0}
 
     if not fm.has_model:
         # Modelo nao foi ajustado (pico insuficiente)
         return {"cf_teta": None, "teta_detectado": False,
-                "erro_ajuste": None, "qualidade_ok": False}
+                "erro_ajuste": None, "qualidade_ok": False,
+                "n_picos": 0}
 
     try:
         erro_ajuste = fm.get_params('error')
@@ -147,7 +168,8 @@ def extrai_cf_teta_fooof(sinal, fs, fit_range=(4, 100), theta_range=(4, 12),
     except Exception:
         # Em casos raros, get_params pode falhar mesmo com has_model=True
         return {"cf_teta": None, "teta_detectado": False,
-                "erro_ajuste": None, "qualidade_ok": False}
+                "erro_ajuste": None, "qualidade_ok": False,
+                "n_picos": 0}
 
     if erro_ajuste is None:
         erro_ajuste = float('inf')
@@ -174,8 +196,10 @@ def extrai_cf_teta_fooof(sinal, fs, fit_range=(4, 100), theta_range=(4, 12),
     # nao apertado. Calibracao empirica fina em LFP real segue pendente
     # mas NAO e' a unica coisa que falta.
     qualidade_ok = teta_detectado and erro_ajuste < 0.15
+    n_picos = int(len(todos_picos)) if todos_picos is not None else 0
     return {"cf_teta": cf_teta, "teta_detectado": teta_detectado,
-            "erro_ajuste": erro_ajuste, "qualidade_ok": qualidade_ok}
+            "erro_ajuste": erro_ajuste, "qualidade_ok": qualidade_ok,
+            "n_picos": n_picos}
 
 
 def compute_plv_harmonico(sinal, fs, f_theta, f_gamma, n, t_ini, t_fim,
@@ -242,6 +266,11 @@ def main():
                     help="limiar de PLV para harmonio forte (default 0.8)")
     ap.add_argument("--limiar_skew", type=float, default=0.5,
                     help="|skewness| acima disto conta como assimetria")
+    ap.add_argument("--modo_preprocesso", default="hibrido",
+                    choices=["gaussiana", "cirurgica", "hibrido"],
+                    help="limpeza de linha Kuhn antes do FOOOF (default hibrido)")
+    ap.add_argument("--f_linha", type=float, default=60.0,
+                    help="frequencia da rede eletrica (BR=60, EU=50)")
     args = ap.parse_args()
 
     df = pd.read_csv(args.csv)
@@ -274,7 +303,9 @@ def main():
             print(f"{canal:<10} | {ini:.0f}-{fim:.0f}s | ERROR: {e}")
             continue
 
-        res_fooof = extrai_cf_teta_fooof(sinal_ctx, fs)
+        res_fooof = extrai_cf_teta_fooof(sinal_ctx, fs,
+                                         modo_preprocesso=args.modo_preprocesso,
+                                         f_linha=args.f_linha)
 
         try:
             skew, _ = theta_skewness_for_window(path, canal, ini, fim)

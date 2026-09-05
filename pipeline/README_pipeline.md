@@ -272,10 +272,18 @@ janelas e devolve números, mas você não viu o sinal. Se o pipeline
 não acha acoplamento, talvez a janela была errada — você viu
 acoplamento no LFP e precisa informar o carimbo.
 
-**Ferramenta:** `exploracao_interativo.py` rodando no **Jupyter Lab**
-com **VisPy** (GPU-accelerated) ou **Bqplot** (d3.js). Navegação
-assíncrona em milhões de pontos sem travar. **Não é matplotlib
-estático.**
+**Ferramenta (estática, para registro inteiro por minuto):** `pipeline/exploracao_minuto.py`
+Gera 1 PNG por minuto (1, 2, 3... do registro) com 3 painéis (PSD + MI z-score + Theta power).
+Usado para cruzar com vídeo: você vê rato explorando no minuto X → abre `minuto_XX.png` → confirma teta+gama → marca carimbo.
+
+**Comando:**
+```bash
+python pipeline/exploracao_minuto.py --pasta_ns2 "<SESSAO>/<BASAL>" --canal chan20 --saida_dir "test_minutos"
+```
+
+**Ferramenta (interativa, Jupyter/VisPy — protótipo):** `exploracao_interativo.py`
+Navegação assíncrona com VisPy/Bqplot. **Ainda não completo** (célula 2 pesada, célula 3 falha).
+Para uso imediato, prefira o script estático `exploracao_minuto.py` que gera PNGs por minuto do registro inteiro.
 
 **O que você vê:**
 - LFP bruto dos **3 .ns2 juntos** (registro completo, não 1 min)

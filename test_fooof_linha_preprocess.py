@@ -2,21 +2,24 @@
 test_fooof_linha_preprocess.py - Validacao do pre-processamento de 50/60Hz
                                 estilo Kuhn et al. 2026.
 
-Tecnica (do paper Kuhn et al. 2026, LFP_FOOOF, Methods):
-  1. Ajustar FOOOF com aperiodic_mode='fixed' (1exp puro) na faixa
-     43-57 Hz (em torno de 50Hz; para 60Hz seria 53-67Hz).
-  2. Subtrair o fit completo (1/f + picos) do PSD original NESSA faixa.
-  3. Resultado: PSD "limpo" sem contaminacao de 50/60Hz.
-  4. Aplicar o FOOOF amplo (knee) ao PSD limpo.
+REUSO: a receita de limpeza de linha vive em production
+`pipeline/auditorias/linha_noise_kuhn.py` (remove_pico_gaussiana /
+preprocessa_linha / aplica_modo) -- este teste e' regressao desse codigo,
+nao duplica a logica.
 
-Aqui validamos em dois cenarios:
+Tecnica (do paper Kuhn et al. 2026, LFP_FOOOF, Methods):
+  - Subtrair APENAS a Gaussiana (pico) do PSD em log10, preservando o
+    componente aperiodico local (subtrair o modelo completo cria buraco).
+  - (Alternativa cirurgica em linha_noise_kuhn.remove_faixa_1f: repor a
+    banda estrita pela 1/f, port do rem_noise.m do artigo.)
+
+Aqui validamos nos cenarios sinteticos e contra a linha ela mesma:
   D original: spike 50Hz (amplitude alta) + 100Hz + artefato motor
-              (o mesmo do test_fooof_pico_budget.py cenario D)
   E estendido: D + teta genuino (nao-senoidal)
 
 Para cada cenario, comparamos:
   - Sem preprocessamento (FOOOF amplo direto)
-  - Com preprocessamento Kuhn (50Hz window 43-57Hz, 60Hz window 53-67Hz)
+  - Com preprocessamento Kuhn (50Hz / 60Hz / hibrido - via aplica_modo)
 
 Esperamos: com preprocessamento, o erro do cenario D cai de 0.265
 para algo < 0.15 (dentro do limiar de producao).
@@ -28,6 +31,7 @@ from fooof import FOOOF
 from test_fooof_pico_budget import (
     gera_cenario_D, gera_cenario_E, roda_fooof
 )
+from pipeline.auditorias.linha_noise_kuhn import aplica_modo
 
 
 def preprocessa_notch_sinal(sinal, fs, freq=60.0, bw=4.0, ordem=6):
@@ -63,98 +67,27 @@ def preprocessa_notches_multiplos(sinal, fs, contaminantes):
     return resultado
 
 
-def remove_pico_kuhn(freqs, psd, freq_centro, largura=7.0,
-                     aperiodic_mode='fixed'):
-    """Replica Kuhn et al. 2026: subtrai APENAS a Gaussiana (pico) do PSD.
-
-    Procedimento (Methods, 'Preprocessing of neural data'):
-      1. Recorta janela estreita ao redor de freq_centro (±largura).
-      2. Ajusta FOOOF 1exp nessa janela (dá aperiódico local + Gaussiana).
-      3. Subtrai APENAS a(s) Gaussiana(s) ajustada(s) do PSD, em log10.
-      4. Preserva o componente aperiódico local (não cria buraco).
-
-    IMPORTANTE - ESCALA: FOOOF ajusta internamente em log10. Os
-    parâmetros de Gaussiana (get_params) e _peak_fit sao em log10.
-    Para subtrair corretamente do PSD linear, operamos em log10:
-    psd_log -= gauss_log, e voltamos com 10**(psd_log).
-    SUBTRAÇÃO LINEAR DESTRÓI O ESPECTRO (bug documentado 04/09/2026).
-
-    IMPORTANTE - ALCANCE: Esta função deve ser chamada SOMENTE para
-    ruído de linha (60Hz + harmônicos 120/180Hz no Brasil). NÃO
-    aplicar para remover harmônicos de teta — isso seria circular
-    no contexto do audita_harmonico.py, que existe para DETECTAR se
-    um pico em gama é harmônico de teta. O artigo Kuhn remove
-    harmônicos de teta porque quer limpar o espectro; nosso script
-    quer FIND harmonic relationships, não apagá-las.
-
-    Retorna o PSD corrigido (linear) e True se houve remoção.
-    """
-    lo, hi = freq_centro - largura, freq_centro + largura
-    mask = (freqs >= lo) & (freqs <= hi)
-    if mask.sum() < 5:
-        return psd, False
-
-    fm_local = FOOOF(aperiodic_mode=aperiodic_mode,
-                     max_n_peaks=1, peak_width_limits=(1, 6),
-                     min_peak_height=0.05, peak_threshold=0.5,
-                     verbose=False)
-    try:
-        fm_local.fit(freqs[mask], psd[mask], freq_range=(lo, hi))
-    except Exception:
-        return psd, False
-    if not fm_local.has_model or fm_local.n_peaks_ == 0:
-        return psd, False
-
-    # Reconstrói a Gaussiana em log10 a partir de _peak_fit (atributo
-    # interno do FOOOF que contém o componente de picos em log10).
-    # _peak_fit tem shape (n_pts_janela,) e ja inclui todas as Gaussianas.
-    if fm_local._peak_fit is None:
-        return psd, False
-
-    psd_log = np.log10(psd[mask])
-    # _peak_fit sao os picos em log10; subtrai para remove-los.
-    psd_log_clean = psd_log - fm_local._peak_fit
-    psd_corrigido = psd.copy()
-    psd_corrigido[mask] = np.maximum(10 ** psd_log_clean, 1e-30)
-    return psd_corrigido, True
-
-
-def preprocessa_linha_kuhn(freqs, psd, fs, f_linha=60.0,
-                           aperiodic_mode='fixed', max_harmonicos=3):
-    """Aplica remoção Kuhn em f_linha e seus harmônicos.
-
-    f_linha=60Hz (rede brasileira).remove 60, 120, 180 Hz.
-    Para dados europeus, usar f_linha=50.0 (remove 50, 100, 150 Hz).
-    """
-    psd_out = psd.copy()
-    nyq = fs / 2
-    for h in range(1, max_harmonicos + 1):
-        fc = f_linha * h
-        if fc >= nyq:
-            break
-        psd_out, ok = remove_pico_kuhn(freqs, psd_out, fc,
-                                       largura=7.0,
-                                       aperiodic_mode=aperiodic_mode)
-        if ok:
-            print(f"    Kuhn: Gaussiana removida em {fc:.0f}Hz")
-    return psd_out
-
-
 def roda_fooof_com_preprocess(sinal, fs, max_n_peaks=4, fit_range=(4, 100),
                                aperiodic_mode='knee', theta_cf_bounds=(5, 9.5),
                                pwl=(2, 5), min_h=0.05,
-                               preprocessar_linha=True, f_linha=60.0):
-    """Replica extrai_cf_teta_fooof COM pre-processamento de 50/60Hz."""
+                               preprocessar_linha=True, f_linha=60.0,
+                               modo_preprocesso='gaussiana'):
+    """Replica extrai_cf_teta_fooof COM pre-processamento de 50/60Hz.
+
+    Delega a limpeza de linha a `aplica_modo` (modulo de producao
+    linha_noise_kuhn). `modo_preprocesso` seleciona gaussiana/cirurgica/
+    hibrido; default gaussiana (subtrai a gaussiana em log10).
+    """
     nperseg = int(1.2 * fs)
     nfft = 4000 if nperseg <= 4000 else nperseg
     freqs, psd = welch(sinal, fs=fs, window='hann',
                        nperseg=nperseg, noverlap=nperseg // 2,
                        nfft=nfft)
     if preprocessar_linha:
-        print(f"  Aplicando preprocess Kuhn (subtrai Gaussiana em {f_linha}Hz"
-              f" + harmônicos):")
-        psd = preprocessa_linha_kuhn(freqs, psd, fs, f_linha=f_linha,
-                                     aperiodic_mode='fixed')
+        print(f"  Aplicando preprocess Kuhn ({modo_preprocesso}, "
+              f"f_linha={f_linha:.0f}Hz):")
+        psd = aplica_modo(freqs, psd, fs, modo_preprocesso,
+                          f_linha=f_linha, verbose=True)
     fm = FOOOF(aperiodic_mode=aperiodic_mode, peak_width_limits=pwl,
                min_peak_height=min_h, peak_threshold=1.0,
                max_n_peaks=max_n_peaks, verbose=False)

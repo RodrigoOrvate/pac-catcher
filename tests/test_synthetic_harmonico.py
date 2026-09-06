@@ -62,6 +62,7 @@ import sys
 import os
 import io
 import contextlib
+import zlib
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pipeline"))
@@ -399,7 +400,8 @@ def main():
     for cid, label, gen_fn, kwargs, f_g_ref in cenarios_base:
         print(f"\n[{cid}] {label} (f_gamma={f_g_ref}Hz)")
         for aper_label, aper_flag in [("aperiodic_on", True), ("aperiodic_off", False)]:
-            seed_cenario = hash((cid, aper_label)) % 100000
+            seed_str = f"{cid}_{aper_label}"
+            seed_cenario = zlib.crc32(seed_str.encode()) % 100000
             sinal, fs_r, f_t, f_g = gen_fn(fs, dur_s, aperiodic=aper_flag,
                                             seed=seed_cenario, **kwargs)
             sub_label = f"{label} [{aper_label}]"
@@ -419,7 +421,8 @@ def main():
     print()
 
     for aper_label, aper_flag in [("aperiodic_on", True), ("aperiodic_off", False)]:
-        seed_c = hash(("C", aper_label)) % 100000
+        seed_str = f"C_{aper_label}"
+        seed_c = zlib.crc32(seed_str.encode()) % 100000
         sinal, fs_r, f_t, f_g = generate_near_coincidence(
             fs, dur_s, f_gamma=23.7, aperiodic=aper_flag, seed=seed_c)
         sub_label = f"Quase-coincidente (23.7Hz) [{aper_label}]"
@@ -439,7 +442,7 @@ def main():
     print("Se f_hfo = 200Hz, e testarmos n_max=30, n=24 e n=25 podem dar ambiguo=True.")
     print()
 
-    seed_hfo = hash("HFO_ambiguo") % 100000
+    seed_hfo = zlib.crc32(b"HFO_ambiguo") % 100000
     # Gera sinal espúrio em 200Hz, cf_teta = 8Hz
     sinal, fs_r, f_t, f_hfo = generate_near_coincidence(
         fs, dur_s, f_theta=8.0, f_gamma=196.5, aperiodic=True, seed=seed_hfo)

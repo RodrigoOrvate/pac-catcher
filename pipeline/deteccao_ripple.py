@@ -14,6 +14,7 @@ e aplicando limites de duração mínima e coocorrência (sharp-wave).
 
 import numpy as np
 from scipy.signal import butter, filtfilt, hilbert
+from preprocessa_referencia_diferencial import aplica_referencia_diferencial
 
 def _filtra_banda(sinal, fs, lowcut, highcut, order=4):
     nyq = 0.5 * fs
@@ -24,9 +25,9 @@ def _filtra_banda(sinal, fs, lowcut, highcut, order=4):
     b, a = butter(order, [lo, hi], btype="bandpass")
     return filtfilt(b, a, sinal)
 
-def detecta_eventos_ripple(sinal, fs, banda_ripple=(150, 250),
-                            limiar_dp=4.0, duracao_min_ms=25,
-                            banda_sharp_wave=(1, 30), exigir_sharp_wave=False):
+def detecta_eventos_ripple(sinal_lfp, fs, banda_ripple=(150, 250),
+                            limiar_dp=3.0, duracao_min_ms=15.0, duracao_max_ms=200.0,
+                            banda_sharp_wave=(1, 30), exigir_sharp_wave=False, sinal_referencia=None):
     """
     Detector hierárquico: um evento só conta como "ripple" (não apenas "HFO cru")
     se satisfizer TODOS os critérios abaixo simultaneamente (AND):
@@ -44,6 +45,8 @@ def detecta_eventos_ripple(sinal, fs, banda_ripple=(150, 250),
     TODO: calibrar limiar_dp e duracao_min_ms empiricamente em sessão real,
     comparando visualmente eventos detectados contra o traço bruto.
     """
+    # Aplica referencia diferencial se fornecida
+    sinal = aplica_referencia_diferencial(sinal_lfp, sinal_referencia)
     sinal_np = np.asarray(sinal, dtype=np.float64)
     
     # 1. Filtra HFO/Ripple e obtém o envelope

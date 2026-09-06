@@ -536,9 +536,9 @@ def main():
         z_col = f"z_{par}"
         if z_col in resultado_final.columns:
             n_cand = int((resultado_final[z_col] >= args.z_corte).sum())
-            n_teta = int((resultado_final[z_col] >= args.z_corte)
-                         & resultado_final.get("teta_ok", pd.Series(True, index=resultado_final.index)).astype(bool)
-                         ).sum() if "teta_ok" in resultado_final.columns else n_cand
+            n_teta = int(((resultado_final[z_col] >= args.z_corte)
+                 & resultado_final.get("teta_ok", pd.Series(True, index=resultado_final.index)).astype(bool)
+                 ).sum()) if "teta_ok" in resultado_final.columns else n_cand
             print(f"  {par}: {n_cand} candidatos com z >= {args.z_corte} "
                   f"({n_teta} com teta_ok=1)")
 

@@ -63,14 +63,14 @@ import os
 import io
 import contextlib
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "pipeline"))
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "pipeline/auditorias"))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pipeline"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pipeline", "auditorias"))
 
 from scipy.signal import welch, butter, filtfilt
 from fooof import FOOOF
 
-from audita_harmonico import (
+from utils_harmonico import (
     extrai_cf_teta_fooof,
     testa_razao_harmonica,
     compute_plv_harmonico,
@@ -312,7 +312,7 @@ def run_fooof_standalone(sinal_ctx, fs, nperseg_s, pwl, min_h=0.05):
 
 
 def run_test(label, sinal, fs, f_theta_ref, f_gamma_ref, ini, fim,
-             verbose=True):
+             verbose=True, n_max_test=8, tol_rel_test=0.10):
     """
     Roda o teste de razao+PLV em um sinal sintetico.
     NAO chama o portao de qualidade (decisao documentada no topo do arquivo).
@@ -341,11 +341,11 @@ def run_test(label, sinal, fs, f_theta_ref, f_gamma_ref, ini, fim,
     desvio = None
 
     if cf_usar is not None:
-        suspeito, ordem, desvio = testa_razao_harmonica(
-            cf_usar, f_gamma_ref, tol_rel=0.10)
+        suspeito, ordem, desvio, ambiguo, candidatos = testa_razao_harmonica(
+            cf_usar, f_gamma_ref, tol_rel=tol_rel_test, n_max=n_max_test)
         if suspeito:
             plv_val = compute_plv_harmonico(
-                sinal_cand, fs, cf_usar, f_gamma_ref, ordem, ini, fim)
+                sinal_cand, fs, cf_usar, f_gamma_ref, ordem)
 
     if verbose:
         erro_str = f"{res_fooof['erro_ajuste']:.4f}" if res_fooof['erro_ajuste'] is not None else "N/A"
@@ -363,6 +363,7 @@ def run_test(label, sinal, fs, f_theta_ref, f_gamma_ref, ini, fim,
         "suspeito_razao": suspeito,
         "ordem": ordem,
         "desvio": desvio,
+        "ambiguo": ambiguo if cf_usar else False,
         "plv": plv_val,
     }
 
@@ -426,6 +427,25 @@ def main():
         res = run_test(sub_label, sinal, fs_r, f_t, f_g, ini, fim)
         resultados.append({"id": f"C_{aper_label}", "label": sub_label,
                             "f_gamma": 23.7, **res})
+
+    # =========================================================================
+    # PARTE 2B: Teste de Ambiguidade de n_max alto (HFO)
+    # =========================================================================
+    print("\n" + "=" * 85)
+    print(">>> PARTE 2B: Teste de Ambiguidade de n_max alto (HFO)")
+    print("=" * 85)
+    print("Para HFO (ex. 200Hz), cf_teta=8Hz. 200/8 = 25. Com n_max=30 e tol=10% (0.8Hz),")
+    print("muitos harmônicos podem sobrepor a mesma banda se cf for ligeiramente instável.")
+    print("Se f_hfo = 200Hz, e testarmos n_max=30, n=24 e n=25 podem dar ambiguo=True.")
+    print()
+
+    seed_hfo = hash("HFO_ambiguo") % 100000
+    # Gera sinal espúrio em 200Hz, cf_teta = 8Hz
+    sinal, fs_r, f_t, f_hfo = generate_near_coincidence(
+        fs, dur_s, f_theta=8.0, f_gamma=196.5, aperiodic=True, seed=seed_hfo)
+    sub_label = "Ambiguidade HFO (196.5Hz, n_max=30, tol=0.6)"
+    res = run_test(sub_label, sinal, fs_r, f_t, f_hfo, ini, fim, n_max_test=30, tol_rel_test=0.6)
+    resultados.append({"id": "HFO_ambiguo", "label": sub_label, "f_gamma": 196.5, **res})
 
     # =========================================================================
     # PARTE 3: Sweep de SNR (harmonico 3x, condicao facil)
@@ -567,6 +587,7 @@ def main():
     print("  - Quase-coincidente fase LIVRE (C, 23.7Hz):")
     print("      razao DEVE ser suspeita (dentro de 10% tol),")
     print("      PLV DEVE ser baixo (<0.5) - senao, logica falha")
+    print("  - Ambiguidade HFO (196.5Hz, n_max=30): ambiguo DEVE ser True")
     print("=" * 85)
 
     # Harmonicos 2x-5x: PLV deve ser > 0.7
@@ -609,6 +630,13 @@ def main():
             status = "RAZAO REJEITOU (freq fora de tolerancia - teste fraco)"
         print(f"  C_aperiodic_on: razao suspeita={r['suspeito_razao']} (esperado True), "
               f"PLV={plv_str} -> {status}")
+
+    # Ambiguidade HFO
+    print("\n  --- Ambiguidade HFO (196.5Hz, n_max=30) ---")
+    r = next((x for x in resultados if x['id'] == 'HFO_ambiguo'), None)
+    if r:
+        status = "OK (Ambiguo=True)" if r['ambiguo'] else "FALHOU (Ambiguo=False)"
+        print(f"  HFO_ambiguo: ambiguo={r['ambiguo']} -> {status}")
 
     # Quase-coincidente SNR sweep
     print("\n  --- Quase-coincidente (C) por SNR ---")

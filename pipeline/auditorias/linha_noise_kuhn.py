@@ -152,9 +152,9 @@ def preprocessa_linha(freqs, psd, fs, func, f_linha=60.0, max_harmonicos=3,
 
 
 MODOS = {
-    'gaussiana': (remove_pico_gaussiana, 3),  # subtrai gaussiana em 60/120/180
+    'gaussiana': (remove_pico_gaussiana, 4),  # subtrai gaussiana em 60/120/180/240
     'cirurgica': (remove_faixa_1f, 1),        # repõe banda so em 60 (rem_noise.m)
-    'hibrido': (remove_faixa_1f, 3),          # repõe banda em 60/120/180
+    'hibrido': (remove_faixa_1f, 4),          # repõe banda em 60/120/180/240
 }
 
 

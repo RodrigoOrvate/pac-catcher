@@ -11,7 +11,7 @@ Devido à vasta quantidade de falsos positivos reportados na literatura de PAC (
 ### 📚 Fundamentos e Citações
 
 O desenvolvimento deste fluxo é fortemente embasado em literatura de referência:
-- **Separação Aperiódica/Oscilatória:** Utilizamos o algoritmo **FOOOF (SpecParam)**. A pasta `FOOOF` presente neste repositório contém os arquivos originais disponibilizados pelos autores do artigo *"Aperiodicity in Mouse CA1 and DG Power Spectra"* (Kuhn et al., 2026), enquanto o nosso pipeline faz as adaptações necessárias para LFP. Essa abordagem é essencial para High-Gamma e HFO, garantindo que a elevação do *spiking* (disparo neuronal) não seja confundida com oscilação real de banda estreita. Repositório original: [LFP_FOOOF](https://github.com/huRashidy/LFP_FOOOF).
+- **Separação Aperiódica/Oscilatória:** Utilizamos o algoritmo **FOOOF (SpecParam)**. A pasta `FOOOF` presente neste repositório contém os arquivos originais disponibilizados pelos autores do artigo *"Aperiodicity in Mouse CA1 and DG Power Spectra"* (Kuhn et al., 2026), enquanto o nosso pipeline faz as adaptações necessárias para LFP. Essa abordagem é essencial para High-Gamma e HFO, garantindo que a elevação do *spiking* (disparo neuronal) não seja confundida com oscilação real de banda estreita. Repositório original: [LFP_FOOOF](https://github.com/huRashidy/LFP_FOOOF). **Nota:** O pacote `fooof` foi substituído upstream pelo `specparam`, mas nossa implementação adaptou o core original para as necessidades de LFP.
 - **Modulação Teta-HG e Teta-HFO:** As bases e os métodos de distribuição de graus de fase (Tort's Modulation Index, Polar Plots) têm fortes raízes em trabalhos como *"Theta phase modulates multiple layer-specific oscillations in the CA1 region"* de Adriano Tort.
 
 ---
@@ -28,6 +28,7 @@ Abaixo estão as etapas principais do pipeline. Todo o código reside aqui. Voc�
 O código é unificado e vive na pasta raiz (`SCRIPT/`). Abaixo, o mapa de ferramentas:
 
 - **`pipeline/`**: O núcleo duro do PAC Catcher.
+  - `triagem_coocorrencia.py` (Passo 0.5): Resolução amostral para HFO/Ripple (hierarquia de detecção). Resolve o Paradoxo HFO.
   - `triagem_pac.py`: Varredura inicial de todo o registro em busca de Teta-Gama, Teta-HG e Teta-HFO.
   - `refina_candidatos.py`: Aplica p-valor paramétrico (Gama), FDR de Benjamini-Hochberg e filtros de kurtose.
   - `comodulogram.py`: Gera mapas de calor 2D (fase x amplitude) com filtros notch aplicados.

@@ -90,13 +90,16 @@ def mi_z(fase, envelope, fs, n_surr=200, n_bins=18, rng=None):
     return mi_obs, z
 
 
-def aplica_notch(sinal_in, fs, linha_hz=60.0, harmonicos=2, q_factor=30.0):
+def aplica_notch(sinal_in, fs, freqs_notch, q_factor=30.0):
+    if not freqs_notch:
+        return sinal_in
     nyq = 0.5 * fs
     out = sinal_in
-    for h in range(1, harmonicos + 1):
-        f = linha_hz * h
+    if not isinstance(freqs_notch, (list, tuple, np.ndarray)):
+        freqs_notch = [freqs_notch]
+    for f in freqs_notch:
         if f >= nyq * 0.98:
-            break
+            continue
         b, a = signal.iirnotch(f / nyq, q_factor)
         out = signal.filtfilt(b, a, out)
     return out
@@ -109,8 +112,8 @@ def main():
     ap.add_argument("--canal", required=True, help="Nome do canal (ex.: chan32)")
     ap.add_argument("--inicio", type=float, required=True, help="Início da janela (s)")
     ap.add_argument("--fim", type=float, required=True, help="Fim da janela (s)")
-    ap.add_argument("--notch", type=float, default=None, metavar="HZ",
-                    help="Frequência da rede a notchar (ex.: 60)")
+    ap.add_argument("--notch", type=float, nargs="+", default=None, metavar="HZ",
+                    help="Frequência(s) da rede a notchar (ex.: 60 120 180)")
     ap.add_argument("--n_surr", type=int, default=200)
     ap.add_argument("--saida_png", default=None)
     args = ap.parse_args()
@@ -127,7 +130,7 @@ def main():
 
     lfp = fatia_janela(dados[:, idx], fs, args.inicio, args.fim).astype(float)
     if args.notch:
-        lfp = aplica_notch(lfp, fs, linha_hz=args.notch)
+        lfp = aplica_notch(lfp, fs, freqs_notch=args.notch)
     t = np.arange(lfp.size) / fs
 
     # ==========================================

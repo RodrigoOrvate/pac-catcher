@@ -67,189 +67,12 @@ from audita_skewness import theta_skewness_for_window  # REUSO, nao duplicacao
 from linha_noise_kuhn import aplica_modo  # REUSO: limpeza de linha Kuhn (60Hz)
 
 
-def extrai_cf_teta_fooof(sinal, fs, fit_range=(4, 100), theta_range=(4, 12),
-                          theta_cf_bounds=(5, 9.5), theta_bw_limits=(2, 5),
-                          min_peak_height=0.05, nperseg_s=1.2,
-                          aperiodic_mode='knee', max_n_peaks=4,
-                          preprocessar_linha=True, modo_preprocesso='hibrido',
-                          f_linha=60.0):
-    """
-    Estima a frequencia central (cf) de teta via FOOOF (metodo modificado
-    de Kuhn et al. 2026, LFP_FOOOF).
-
-    ARQUITETURA DE DOIS PASSOS (segue o artigo, Eqs. 1-5 e Tabela 1):
-        1. Fit amplo do modelo completo (1/f aperiodico + todos os picos
-           periodicos) sobre uma faixa larga (default 4-100Hz). Isso da
-           ao FOOOF espaco dinamico suficiente para ancorar a lei de
-           potencia 1/f^n com confianca estatistica - 8Hz de largura
-           (theta_range sozinho) e' pouquissimo para estimar expoente.
-        2. Extracao do pico de teta por filtragem dos picos ja' ajustados
-           via theta_cf_bounds (default 5-9.5Hz). NAO re-ajustamos um
-           modelo novo dentro de uma janela estreita.
-
-    Por que o fit amplo (e nao so' teta):
-        O artigo reporta erros de "full model fit" (identico ao que
-        fm.get_params('error') retorna, "mean absolute difference of full
-        model fit" segundo a secao "Errors estimation") na faixa de
-        0.014-0.048 mesmo em casos dificeis. Quando restringimos o fit
-        a 4-12Hz, o erro sobe para ~0.18 no mesmo sinal sintetico
-        realista: o FOOOF nao tem informacao suficiente para ancorar a
-        curva aperiodica, entao o residuo explode.
-
-    IMPORTANTE sobre aperiodic_mode:
-        Default = 'knee' porque LFP real de CA1/DG tem 'knee frequency'
-        real (~28 Hz em CA1, ~70 Hz em DG segundo Kuhn et al. 2026).
-        'fixed' so deve ser usado em sinais sem componente 1/f ou em
-        testes sinteticos com estrutura simples.
-
-    Parametros:
-        fit_range: tupla (f_min, f_max) para o fit amplo do FOOOF.
-                   Default (4, 100) - cobre 1/f^slope bem abaixo do
-                   knee (~28Hz) e a maior parte da banda gamma. Acima
-                   de 100Hz, o modelo aperiodico de 1 knee comeca a
-                   divergir e exige os modelos 2exp/3exp do artigo.
-        theta_range, theta_cf_bounds: usados APENAS para filtrar picos
-                   ja' ajustados (passo 2), NAO para restringir o fit.
-        preprocessar_linha: se True (default), limpa o ruido de linha antes
-                   do fit. modo_preprocesso: 'gaussiana' (subtrai a
-                   gaussiana em log10 em 60/120/180) | 'cirurgica' (repoe a
-                   banda ±2Hz pela 1/f so em 60Hz) | 'hibrido' (default;
-                   repoe banda em 60/120/180 — vencedor da comparacao
-                   compara_preprocesso_linha.py, menor erro sintetico sem
-                   mutilar oscilacoes reais). f_linha: frequencia da rede
-                   (BR=60).
-    """
-    nperseg = int(nperseg_s * fs)
-    # nfft=4000 (zero-padding): segue Kuhn et al. 2026 (LFP_FOOOF).
-    # Welch ainda janelado em 1.2s (resolucao estatistica real do espectro),
-    # mas FFT em 4000 pontos interpola o espectro para grade fina
-    # (~0.25 Hz/bin), dando ao FOOOF pontos suficientes para convergir
-    # em Gaussiana de 2-5 Hz sem instabilidade numerica.
-    nfft = 4000 if nperseg <= 4000 else nperseg
-    freqs, psd = welch(sinal, fs=fs, window='hann',
-                        nperseg=nperseg, noverlap=nperseg // 2,
-                        nfft=nfft)
-
-    # Limpeza de linha (receita Kuhn) ANTES do fit: a linha de 60Hz (BR)
-    # cai dentro do gamma e, se o FOOOF a tratar como pico, infla o erro e
-    # rouba vaga de pico. Modo default 'gaussiana' (subtrai a gaussiana em
-    # log10 em 60/120/180); 'cirurgica'/'hibrido' disponiveis para comparar.
-    if preprocessar_linha:
-        psd = aplica_modo(freqs, psd, fs, modo_preprocesso,
-                          f_linha=f_linha, verbose=False)
-
-    # max_n_peaks=4: artigo detecta slow_gamma, fast_gamma, ripples etc.
-    # no mesmo fit. Restringir a 1 so' faz sentido na hora de extrair por
-    # banda (passo 2), nao no fit em si.
-    fm = FOOOF(aperiodic_mode=aperiodic_mode, peak_width_limits=theta_bw_limits,
-               min_peak_height=min_peak_height, peak_threshold=1.0,
-               max_n_peaks=max_n_peaks)
-
-    # PASSO 1: fit amplo sobre fit_range - dados de entrada NAO restringidos
-    # a banda de teta. O FOOOF recebe o PSD inteiro (ou no max ate 100Hz)
-    # e ajusta o modelo completo (aperiodico + periodicos) numa so' passada.
-    try:
-        fm.fit(freqs, psd, freq_range=fit_range)
-    except Exception as e:
-        # FOOOF pode falhar em sinais fracos/sem pico detectavel
-        return {"cf_teta": None, "teta_detectado": False,
-                "erro_ajuste": None, "qualidade_ok": False,
-                "n_picos": 0}
-
-    if not fm.has_model:
-        # Modelo nao foi ajustado (pico insuficiente)
-        return {"cf_teta": None, "teta_detectado": False,
-                "erro_ajuste": None, "qualidade_ok": False,
-                "n_picos": 0}
-
-    try:
-        erro_ajuste = fm.get_params('error')
-        todos_picos = fm.get_params('peak_params')
-    except Exception:
-        # Em casos raros, get_params pode falhar mesmo com has_model=True
-        return {"cf_teta": None, "teta_detectado": False,
-                "erro_ajuste": None, "qualidade_ok": False,
-                "n_picos": 0}
-
-    if erro_ajuste is None:
-        erro_ajuste = float('inf')
-
-    # PASSO 2: extrair pico de teta por filtragem dos picos ja' ajustados.
-    # Isso replica o passo "Detection range" da Tabela 1 do artigo:
-    # o fit ja' foi feito na faixa ampla; agora restringimos o ROTULO
-    # do pico, nao o modelo.
-    cf_teta, teta_detectado = None, False
-    if todos_picos is not None and len(todos_picos) > 0:
-        # picos vem como (N, 3): cf, amp, bw. Garantir 2D
-        picos_arr = todos_picos if todos_picos.ndim > 1 else todos_picos.reshape(1, -1)
-        candidatos = picos_arr[(picos_arr[:, 0] >= theta_cf_bounds[0]) &
-                                (picos_arr[:, 0] <= theta_cf_bounds[1])]
-        if len(candidatos) > 0:
-            # Se houver mais de um pico na banda, escolhemos o de maior
-            # amplitude (potencia do pico periodico)
-            cf_teta = float(candidatos[np.argmax(candidatos[:, 1]), 0])
-            teta_detectado = True
-
-    # Limiar 0.15: agora comparável aos valores do artigo (0.014-0.048
-    # em casos bem-comportados; ate ~0.15 em casos "ruins" do modelo
-    # mais simples 1exp). Com o fit amplo, este limiar vira conservador,
-    # nao apertado. Calibracao empirica fina em LFP real segue pendente
-    # mas NAO e' a unica coisa que falta.
-    qualidade_ok = teta_detectado and erro_ajuste < 0.15
-    n_picos = int(len(todos_picos)) if todos_picos is not None else 0
-    return {"cf_teta": cf_teta, "teta_detectado": teta_detectado,
-            "erro_ajuste": erro_ajuste, "qualidade_ok": qualidade_ok,
-            "n_picos": n_picos}
-
-
-def compute_plv_harmonico(sinal, fs, f_theta, f_gamma, n, t_ini, t_fim,
-                           bw_theta=2.0, bw_gamma=2.0):
-    """
-    Calcula o PLV (Phase Locking Value) entre n*phi_theta e phi_gamma.
-
-    Harmonico verdadeiro: PLV alto (~1), fase constante ciclo a ciclo.
-    Acoplamento genuino: PLV mais baixo/variavel.
-
-    Filtros narrow-band Butterworth ordem 4:
-      - bw_theta=2.0Hz: extrai a fase do teta sem contaminacao de harmônicos
-      - bw_gamma=2.0Hz: extrai a fase do gamma em torno de f_gamma
-
-    Nota: Bandas muito estreitas (<1Hz) podem distorcer a fase em frequencias
-    baixas (teta). 2Hz e um bom compromisso entre precisao e robustez.
-    """
-    # Filtragem estreita para extrair fase (Butterworth 4a ordem)
-    def narrow_band(sig, f, bw):
-        nyq = 0.5 * fs
-        lo = max(0.1, f - bw / 2)
-        hi = min(fs / 2 - 0.1, f + bw / 2)
-        b, a = butter(4, [lo / nyq, hi / nyq], btype='band')
-        return filtfilt(b, a, sig)
-
-    # Extrair fase via Hilbert
-    s_theta = narrow_band(sinal, f_theta, bw_theta)
-    s_gamma = narrow_band(sinal, f_gamma, bw_gamma)
-
-    phi_theta = np.angle(hilbert(s_theta))
-    phi_gamma = np.angle(hilbert(s_gamma))
-
-    # PLV n:1 -> |mean(exp(i * (phi_gamma - n * phi_theta)))|
-    diff = phi_gamma - (n * phi_theta)
-    plv = np.abs(np.mean(np.exp(1j * diff)))
-
-    return plv
-
-
-def testa_razao_harmonica(fase_hz, amp_hz, tol_rel=0.1, n_max=8):
-    """
-    Testa se amp_hz ~= n * fase_hz usando tolerancia relativa (10% de f_theta).
-    """
-    for n in range(2, n_max + 1):
-        # Tolerancia relativa: 10% da freq de teta
-        tol_abs = tol_rel * fase_hz
-        desvio = abs(amp_hz - n * fase_hz)
-        if desvio <= tol_abs:
-            return True, n, desvio
-    return False, None, None
+from utils_harmonico import (
+    extrai_cf_teta_fooof,
+    compute_plv_harmonico,
+    testa_razao_harmonica,
+    calcula_n_max
+)
 
 
 def main():
@@ -318,20 +141,23 @@ def main():
             ordem = None
         else:
             # 1. Teste de Razao de Frequencia (Tolerancia Relativa)
-            suspeito, ordem, desvio = testa_razao_harmonica(
-                res_fooof["cf_teta"], amp_pico, args.tol_rel)
+            n_max = calcula_n_max(res_fooof["cf_teta"], amp_pico, args.tol_rel * res_fooof["cf_teta"])
+            suspeito, ordem, desvio, ambiguo, candidatos = testa_razao_harmonica(
+                res_fooof["cf_teta"], amp_pico, args.tol_rel, n_max=n_max)
 
             # 2. Teste de Rigidez de Fase (PLV) - roda apenas se houver suspeita de razao
             plv_val = np.nan
-            if suspeito:
+            if suspeito and ordem is not None:
                 plv_val = compute_plv_harmonico(sinal_cand, fs,
                                                res_fooof["cf_teta"], amp_pico,
-                                               ordem, ini, fim)
+                                               ordem)
 
             skew_alto = skew is not None and abs(skew) > args.limiar_skew
             plv_alto = plv_val is not None and plv_val > args.limiar_plv
 
-            if suspeito and skew_alto and plv_alto:
+            if ambiguo:
+                veredito = f"AMBIGUO_MULTIPLOS_N ({len(candidatos)} candidatos: {[c[0] for c in candidatos]})"
+            elif suspeito and skew_alto and plv_alto:
                 veredito = f"SUSPEITO_HARMONICO_FORTE ({ordem}x, PLV={plv_val:.2f})"
             elif suspeito and plv_alto:
                 veredito = f"REVISAR_FASE_TRAVADA ({ordem}x, PLV={plv_val:.2f})"

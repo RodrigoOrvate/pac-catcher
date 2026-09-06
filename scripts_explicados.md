@@ -512,20 +512,21 @@ python audita_harmonico.py ......csv "<sessao>/RESULTADOS/vencedores.csv" \
 ## 13. udita_harmonico_hfo.py  Teste de razo harmnica G?HFO *(novo 2026...09...05)*
 
 Testa se HFO (150250 Hz)  harmnico de Gamma (3080 Hz) usando FOOOF para
-estimar cf_gamma e PLV(nphi_gamma, phi_hfo). Anlogo ao udita_harmonico.py.
+estimar cf_gamma e PLV(nphi_gamma, phi_hfo). Anlogo ao  udita_harmonico.py.
 Vereditos: CLEAN / REVISAR_RAZAO_INTEIRA / REVISAR_FASE_TRAVADA / SUSPEITO_HARMONICO_FORTE / SEM_REFERENCIA_GAMMA.
 
 .........
 
-## Convenes comuns a todos os scripts
+## Convenções comuns a todos os scripts
 
-... **Notch 60 Hz** (......notch 60): padro recomendado. Comparar sempre com/sem.
-... **Nula de surrogates:** deslocamento circular >= 1 s, 200 repeties, semente 42.
-... **Parmetros canonicos:** janela 10 s / passo 5 s; theta 4...8 Hz x gamma 30...80 Hz; n_bins 18; 200 surrogates.
-... **iltra_sinal**: Butterworth bandpass, iltfilt (zero fase), ordem 3.
-... **_mi_de_bin_idx**: nucleo vetorizado do KL...MI via 
-p.bincount.
-... **h_fdr**: Benjamini...Hochberg; m_total = familia completa de testes.
+... **Notch de Alta Frequência (Desvio da Literatura)**: Kühn et al. (2026) reportaram na prosa de seu artigo a aplicação de Notch apenas em 50Hz. Contudo, o script oficial deles (`rem_noise.m`) demonstra que aplicavam múltiplos Notches em todos os harmônicos (50, 100, 150, 200 Hz). Nosso pipeline faz o equivalente para 60Hz (60, 120, 180, 240 Hz) para limpar a contaminação harmônica da rede elétrica nas bandas HG e HFO (onde antes passava batido).
+... **O Paradoxo HFO vs Ripple (Passo 0.5)**: A triagem de coocorrência resolve a extrema permissividade da banda HFO ampla. O HFO (150-250 Hz) está presente na maior parte das janelas (devido à cauda ruidosa/aperiódica), mas um autêntico "Ripple" é definido por características transitórias em resolução de amostra (≥3 DP acima da mediana, ≥10-25 ms de duração contínua). Janelas com HFO mas sem Ripple são rejeitadas.
+... **Ambiguidade Harmônica no HFO**: Ao estender `n_max` para testar se HFO é harmônico de Theta (ex: 200Hz / 8Hz = n=25), múltiplos harmônicos poderiam se sobrepor à mesma banda em `tol=10%` se o n_max fosse global. Adotamos o distanciamento exato (`n` dinâmico por candidato) resolvendo os casos onde o plv pudesse retornar ambíguo erroneamente.
+... **Nula de surrogates:** deslocamento circular >= 1 s, 200 repetições, semente 42.
+... **Parâmetros canônicos:** janela 10 s / passo 5 s; theta 4-8 Hz x gamma 30-80 Hz; n_bins 18; 200 surrogates.
+... **filtra_sinal**: Butterworth bandpass, filtfilt (zero fase), ordem 3.
+... **_mi_de_bin_idx**: núcleo vetorizado do KL-MI via np.bincount.
+... **bh_fdr**: Benjamini-Hochberg; m_total = família completa de testes.
 
 ## Princpio revisor
 

@@ -89,19 +89,26 @@ def _mi_de_bin_idx(bin_idx, envelope, n_bins):
     return (np.log(n_bins) - H) / np.log(n_bins)
 
 
-def aplica_notch(sinal_in, fs, linha_hz=60.0, harmonicos=2, q_factor=30.0):
+def aplica_notch(sinal_in, fs, freqs_notch, q_factor=30.0):
     """
     Rejeita a frequência da rede elétrica e seus harmônicos (iirnotch).
-    Necessário porque um pico de 60 Hz (e o harmônico em 120 Hz) dentro da
-    banda de amplitude infla o MI nas células 55/60/65 Hz do comodulograma
-    e pode simular acoplamento Theta-Gamma onde não há.
+    Aceita uma lista de frequências (ex: [60, 120, 180, 240]).
+    Necessário porque picos de linha dentro da banda de amplitude inflam
+    o MI simulando acoplamento onde não há.
     """
+    if not freqs_notch:
+        return sinal_in
+        
     nyq = 0.5 * fs
     out = sinal_in
-    for h in range(1, harmonicos + 1):
-        f = linha_hz * h
+    
+    # Suporta tanto um número (comportamento antigo, mas aqui usamos lista) quanto lista
+    if not isinstance(freqs_notch, (list, tuple, np.ndarray)):
+        freqs_notch = [freqs_notch]
+        
+    for f in freqs_notch:
         if f >= nyq * 0.98:
-            break
+            continue
         b, a = signal.iirnotch(f / nyq, q_factor)
         out = signal.filtfilt(b, a, out)
     return out
@@ -131,7 +138,7 @@ def calcula_comodulograma_z(lfp_ativo, fs, fases_freq, amps_freq,
         rng = np.random.default_rng()
 
     if notch_hz:
-        lfp_ativo = aplica_notch(lfp_ativo, fs, linha_hz=notch_hz)
+        lfp_ativo = aplica_notch(lfp_ativo, fs, freqs_notch=notch_hz)
 
     bins = np.linspace(-np.pi, np.pi, n_bins + 1)
 
@@ -554,9 +561,9 @@ def main():
     ap.add_argument("--inicio", type=float, default=130.0, help="Início da janela (s)")
     ap.add_argument("--fim", type=float, default=140.0, help="Fim da janela (s)")
     ap.add_argument("--n_surr", type=int, default=200, help="Número de surrogates por par")
-    ap.add_argument("--notch", type=float, default=None, metavar="HZ",
-                    help="Frequência da rede elétrica a notchar (ex.: 60), "
-                         "com harmônicos. Rode com e sem para comparar.")
+    ap.add_argument("--notch", type=float, nargs="+", default=None, metavar="HZ",
+                    help="Frequência(s) da rede elétrica a notchar "
+                         "(ex.: --notch 60 120 180 240).")
     ap.add_argument("--fdr_q", type=float, default=None, metavar="Q",
                     help="Se informado (ex.: 0.05), aplica Benjamini-Hochberg "
                          "sobre as células do mapa, contorna as significantes "

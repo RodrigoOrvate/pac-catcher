@@ -133,7 +133,7 @@ def remove_faixa_1f(freqs, psd, freq_centro, largura_rep=2.0,
     return psd_corrigido, True
 
 
-def preprocessa_linha(freqs, psd, fs, func, f_linha=60.0, max_harmonicos=3,
+def preprocessa_linha(freqs, psd, fs, func, f_linha=60.0, max_harmonicos=4,
                       verbose=False):
     """Aplica `func` iterativamente em `f_linha` e seus harmonicos.
 

@@ -561,7 +561,7 @@ def main():
     ap.add_argument("--inicio", type=float, default=130.0, help="Início da janela (s)")
     ap.add_argument("--fim", type=float, default=140.0, help="Fim da janela (s)")
     ap.add_argument("--n_surr", type=int, default=200, help="Número de surrogates por par")
-    ap.add_argument("--notch", type=float, nargs="+", default=None, metavar="HZ",
+    ap.add_argument("--notch", type=float, nargs="+", default=[60.0, 120.0, 180.0, 240.0], metavar="HZ",
                     help="Frequência(s) da rede elétrica a notchar "
                          "(ex.: --notch 60 120 180 240).")
     ap.add_argument("--fdr_q", type=float, default=None, metavar="Q",

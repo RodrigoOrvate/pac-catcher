@@ -14,3 +14,5 @@ __pycache__/
 
 # Checkpoints do Jupyter
 .ipynb_checkpoints/
+
+TESTE_INTEGRACAO_OUT/

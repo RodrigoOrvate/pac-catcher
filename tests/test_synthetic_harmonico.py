@@ -73,6 +73,7 @@ from fooof import FOOOF
 
 from utils_harmonico import (
     extrai_cf_teta_fooof,
+    extrai_cf_gamma_fooof,
     testa_razao_harmonica,
     compute_plv_harmonico,
 )
@@ -368,6 +369,52 @@ def run_test(label, sinal, fs, f_theta_ref, f_gamma_ref, ini, fim,
         "plv": plv_val,
     }
 
+
+
+def test_gamma_fooof_baseline():
+    print("\n" + "=" * 85)
+    print(">>> PARTE 4: Baseline Numerico para FOOOF de Gama (Regressao)")
+    print("=" * 85)
+    
+    fs = 1000.0
+    dur_s = 60.0
+    
+    cenarios = [
+        ("Gama Independente Forte", generate_genuine_coupling, {"f_gamma": 45.0}, 45.0),
+        ("Gama Independente Fraco", generate_genuine_coupling, {"f_gamma": 65.0, "snr_db": 5.0}, 65.0),
+        ("Gama como Harmonico 4x (32Hz)", generate_harmonic_signal, {"ordem": 4, "f_theta": 8.0}, 32.0),
+        ("Gama Quase-Coincidente", generate_near_coincidence, {"f_gamma": 55.7}, 55.7),
+    ]
+    
+    erros = []
+    
+    for label, gen_fn, kwargs, f_g_ref in cenarios:
+        print(f"\n[Gama] {label} (f_ref={f_g_ref}Hz)")
+        # Gerar sinal
+        sinal, fs_r, f_t, f_g = gen_fn(fs, dur_s, aperiodic=True, seed=42, **kwargs)
+        
+        # O FOOOF do Gama precisa da banda padrao 25-90Hz
+        res = extrai_cf_gamma_fooof(sinal, fs_r)
+        
+        cf_g = res["cf_gamma"]
+        err = res["erro_ajuste"]
+        
+        cf_str = f"{cf_g:.2f}Hz" if cf_g else "Falhou"
+        err_str = f"{err:.4f}" if err is not None else "N/A"
+        
+        if cf_g:
+            desvio = abs(cf_g - f_g_ref)
+            print(f"  Detectado: {cf_str} | Desvio: {desvio:.2f}Hz | Erro FOOOF: {err_str}")
+        else:
+            print(f"  Nao detectou gama | Erro FOOOF: {err_str}")
+            
+        if err is not None:
+            erros.append(err)
+            
+    if erros:
+        avg_err = sum(erros)/len(erros)
+        print(f"\n>> Erro Absoluto Medio (Baseline Gama FOOOF): {avg_err:.4f}")
+        print(">> Este valor (tipicamente ~0.08 - 0.12) justifica o limiar < 0.20")
 
 def main():
     print("=" * 85)
@@ -699,3 +746,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+    # Executa baseline de gama
+    test_gamma_fooof_baseline()

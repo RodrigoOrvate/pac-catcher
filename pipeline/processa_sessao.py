@@ -35,7 +35,7 @@ def processa_sessao(pasta_sessao, saida_base, notch=(60, 120, 180, 240),
     os.makedirs(saida_sessao, exist_ok=True)
     
     # Encontrar o primeiro arquivo ns2 na pasta para ler dados básicos
-    arquivos_ns2 = [f for f in os.listdir(pasta_sessao) if f.endswith(".ns2")]
+    arquivos_ns2 = sorted([f for f in os.listdir(pasta_sessao) if f.endswith(".ns2")])
     if not arquivos_ns2:
         print(f"[{nome_sessao}] Nenhum arquivo .ns2 encontrado.")
         return []
@@ -63,20 +63,23 @@ def processa_sessao(pasta_sessao, saida_base, notch=(60, 120, 180, 240),
         saida_canal = os.path.join(saida_sessao, f"chan{c+1}")
         os.makedirs(saida_canal, exist_ok=True)
         
-        coocorrencia_csv = os.path.join(saida_canal, "coocorrencia.csv")
-        
         # ESTÁGIO 1: Coocorrência
-        run(["python", "pipeline/triagem_coocorrencia.py",
-             "--origem", primeiro_arq, "--canal", str(c),
-             "--saida", coocorrencia_csv], f"Estágio 1 - Coocorrência - {nome_sessao} chan{c+1}")
-             
-        if not os.path.exists(coocorrencia_csv):
-            print(f"[{nome_sessao}] chan{c+1}: Falha ao gerar coocorrencia.csv")
-            continue
-            
-        df_coo = pd.read_csv(coocorrencia_csv)
-        n_teta_gama = int((df_coo['teta_ok'] & df_coo['gamma_ok']).sum())
-        n_teta_hg = int((df_coo['teta_ok'] & df_coo['hg_ok']).sum())
+        n_teta_gama_total, n_teta_hg_total = 0, 0
+        for arq in arquivos_ns2:
+            coocorrencia_csv = os.path.join(saida_canal, f"coocorrencia_{arq}.csv")
+            run(["python", "pipeline/triagem_coocorrencia.py",
+                 "--origem", os.path.join(pasta_sessao, arq), "--canal", str(c),
+                 "--saida", coocorrencia_csv], f"Estágio 1 - {arq} - chan{c+1}")
+                 
+            if os.path.exists(coocorrencia_csv):
+                df_coo = pd.read_csv(coocorrencia_csv)
+                n_teta_gama_total += int((df_coo['teta_ok'] & df_coo['gamma_ok']).sum())
+                n_teta_hg_total += int((df_coo['teta_ok'] & df_coo['hg_ok']).sum())
+            else:
+                print(f"[{nome_sessao}] chan{c+1}: Falha ao gerar {coocorrencia_csv}")
+                
+        n_teta_gama = n_teta_gama_total
+        n_teta_hg = n_teta_hg_total
         resumo_canais.append({"sessao": nome_sessao, "canal": c+1,
                               "n_teta_gama": n_teta_gama, "n_teta_hg": n_teta_hg})
                               

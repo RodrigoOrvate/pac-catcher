@@ -65,6 +65,7 @@ def processa_sessao(pasta_sessao, saida_base, notch=(60, 120, 180, 240),
         
         # ESTÁGIO 1: Coocorrência
         n_teta_gama_total, n_teta_hg_total = 0, 0
+        n_teta_hfo_total, n_teta_ripple_total = 0, 0
         for arq in arquivos_ns2:
             coocorrencia_csv = os.path.join(saida_canal, f"coocorrencia_{arq}.csv")
             run(["python", "pipeline/triagem_coocorrencia.py",
@@ -75,13 +76,18 @@ def processa_sessao(pasta_sessao, saida_base, notch=(60, 120, 180, 240),
                 df_coo = pd.read_csv(coocorrencia_csv)
                 n_teta_gama_total += int((df_coo['teta_ok'] & df_coo['gamma_ok']).sum())
                 n_teta_hg_total += int((df_coo['teta_ok'] & df_coo['hg_ok']).sum())
+                n_teta_hfo_total += int((df_coo['teta_ok'] & df_coo['hfo_cru']).sum())
+                n_teta_ripple_total += int((df_coo['teta_ok'] & df_coo['ripple']).sum())
             else:
                 print(f"[{nome_sessao}] chan{c+1}: Falha ao gerar {coocorrencia_csv}")
                 
         n_teta_gama = n_teta_gama_total
         n_teta_hg = n_teta_hg_total
+        n_teta_hfo = n_teta_hfo_total
+        n_teta_ripple = n_teta_ripple_total
         resumo_canais.append({"sessao": nome_sessao, "canal": c+1,
-                              "n_teta_gama": n_teta_gama, "n_teta_hg": n_teta_hg})
+                              "n_teta_gama": n_teta_gama, "n_teta_hg": n_teta_hg,
+                              "n_teta_hfo": n_teta_hfo, "n_teta_ripple": n_teta_ripple})
                               
         if n_teta_gama < min_janelas_coocorrencia and n_teta_hg < min_janelas_coocorrencia:
             print(f"[{nome_sessao}] chan{c+1}: coocorrencia insuficiente (Gama={n_teta_gama}, HG={n_teta_hg}), pulando pipeline pesado")

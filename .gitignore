@@ -1,5 +1,13 @@
-# Configuração local do Claude Code (contém token de API — nunca commitar)
-.claude/settings.local.json
+# Dados pesados e Exemplos
+DADOS_EXEMPLO*/
+*.ns2
+*.ns5
+*.ns6
+*.nev
+*.mat
+
+# Configuração local do Claude Code (todo o diretório)
+.claude/
 
 # Cache de bytecode Python
 __pycache__/

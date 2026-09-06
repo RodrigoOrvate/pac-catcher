@@ -20,7 +20,33 @@ O desenvolvimento deste fluxo é fortemente embasado em literatura de referênci
 
 Abaixo estão as etapas principais do pipeline. Todo o código reside aqui. Você apenas apontará os comandos para as pastas com os seus dados `.ns2`.
 
-> **Nota:** Para uma explicação mais aprofundada do embasamento teórico, lógica de auditorias e o que cada função faz internamente, consulte o arquivo `scripts_explicados.md`.
+> [!NOTE]
+> Para uma explicação exaustiva, teórica e matemática de **TODOS** os scripts listados abaixo, consulte o arquivo **[`scripts_explicados.md`](./scripts_explicados.md)**. Ele é o verdadeiro manual técnico interno do pipeline.
+
+## 📂 Estrutura do Repositório (Guia de Scripts)
+
+O código é unificado e vive na pasta raiz (`SCRIPT/`). Abaixo, o mapa de ferramentas:
+
+- **`pipeline/`**: O núcleo duro do PAC Catcher.
+  - `triagem_pac.py`: Varredura inicial de todo o registro em busca de Teta-Gama, Teta-HG e Teta-HFO.
+  - `refina_candidatos.py`: Aplica p-valor paramétrico (Gama), FDR de Benjamini-Hochberg e filtros de kurtose.
+  - `comodulogram.py`: Gera mapas de calor 2D (fase x amplitude) com filtros notch aplicados.
+  - `robustez_parametros.py` & `figura_apresentacao.py`: Testa estabilidade (varredura de n_bins, filtros) e plota STFT e gráficos polares para apresentação.
+  - `exploracao_minuto.py` / `comodulogram_interativo.py`: Scripts para navegação visual e inspeção prévia dos dados antes da triagem cega.
+  - Utilitários: `ns2_utils.py` (lê os dados brutos .ns2), `extrair_picos.py`, `adapta_lfp_mat.py`, `gerar_relatorio_pdf.py`.
+
+- **`pipeline/auditorias/`**: Filtros e testes secundários rigorosos para falsos positivos.
+  - `audita_harmonico.py` / `audita_harmonico_hfo.py`: Usa o FOOOF para separar 1/f e confirmar se os picos de amplitude não são harmônicos matemáticos da fase.
+  - `audita_skewness.py`: Checa se a assimetria (dente-de-serra) da onda lenta forjou o acoplamento.
+  - `audita_footprint.py`: Checa se a distribuição do acoplamento pelos 32 canais é focal (verdadeira) ou difusa (condução de volume/artefato).
+  - `diagnostico_janela.py`: Cruza o ritmo Teta com faixas respiratórias/olfatórias (0.5-3Hz / 4-8Hz) para descartar artefatos respiratórios.
+  - `audita_transientes.py`, `audita_segmentos.py`: Garantem que o acoplamento não é dirigido por *spikes* (espigões) de ruído mecânico.
+
+- **`FOOOF/`**: Código-fonte original do repositório *LFP_FOOOF* de Kuhn et al. (usado pelo módulo de auditorias para separar o fundo 1/f).
+- **`preditor/`**: Ferramentas experimentais de Machine Learning (`treinar_preditor.py`, `prever_pac_tempo_real.py`, `analisar_pre_evento.py`) para prever ocorrência de PAC em tempo real.
+- **`tests/`**: Suite de testes automatizados (`test_synthetic_harmonico.py`, etc.) que simulam LFPs sintéticos ruidosos para garantir que a matemática do pipeline não falha sob *stress*.
+
+---
 
 ### Pré-requisitos
 Instale as bibliotecas necessárias:
@@ -66,6 +92,10 @@ python pipeline/refina_candidatos.py \
 
 ### Passo 3: Comodulogramas e Controle de Linha
 Gera os mapas bidimensionais (fase x amplitude) para os candidatos robustos. **Crucial:** aplica filtros *notch* em 60 Hz e 120 Hz para evitar que harmônicos da rede elétrica forjem acoplamento no High-Gamma.
+
+> [!WARNING]
+> **Frequência da Rede Elétrica:** O comando abaixo utiliza `--notch 60`, que é o padrão para a rede elétrica do Brasil e EUA. Se os seus dados foram coletados em um país que utiliza **50 Hz** (ex: Europa, parte da Ásia), você **DEVE** alterar este parâmetro para `--notch 50`, caso contrário, o ruído elétrico não será removido e poderá gerar falsos positivos no High-Gamma.
+
 ```bash
 python pipeline/comodulogram.py \
     --csv "../SESSAO_EXEMPLO/RESULTADOS/resultados_refinados.csv" \

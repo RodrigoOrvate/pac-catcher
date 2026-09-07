@@ -105,7 +105,8 @@ def main():
     for _, r in df.iterrows():
         canal, arquivo = str(r["canal"]), str(r["arquivo"])
         path = os.path.join(args.pasta_ns2, arquivo)
-        ini, fim = float(r["inicio_s"]), float(r["fim_s"])
+        ini = float(r.get("janela_ini_s", r.get("inicio_s", 0)))
+        fim = float(r.get("janela_fim_s", r.get("fim_s", 0)))
         fase_pico, amp_pico = float(r["fase_pico_hz"]), float(r["amp_pico_hz"])
 
         centro = (ini + fim) / 2

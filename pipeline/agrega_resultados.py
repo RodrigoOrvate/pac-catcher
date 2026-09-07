@@ -14,23 +14,25 @@ def agrega_resultados(pasta_saida_base, saida_mestre="dataset_mestre.csv"):
         print("Pasta base não encontrada.")
         return
         
-    sessoes = [d for d in os.listdir(pasta_saida_base) if os.path.isdir(os.path.join(pasta_saida_base, d))]
-    
     dfs = []
-    
-    for sessao in sessoes:
-        condicao = "basal"
-        # Parse rudimentar da condicao
-        if "LAC" in sessao.upper(): condicao = "LAC"
-        elif "NOCI" in sessao.upper(): condicao = "NOCI"
-        
-        caminho_sessao = os.path.join(pasta_saida_base, sessao)
-        canais = [d for d in os.listdir(caminho_sessao) if d.startswith("chan")]
-        
-        for canal in canais:
-            refinados_path = os.path.join(caminho_sessao, canal, "refinados.csv")
-            if not os.path.exists(refinados_path):
-                continue
+    for root, dirs, files in os.walk(pasta_saida_base):
+        if "refinados.csv" in files:
+            refinados_path = os.path.join(root, "refinados.csv")
+            
+            # Tentar inferir nome da sessao e canal a partir do caminho
+            # ex: .../SessaoXYZ_Basal/Basal antes/chan12/refinados.csv
+            partes = root.replace("\\", "/").split("/")
+            canal = "unknown"
+            sessao = "unknown"
+            for p in partes:
+                if p.startswith("chan"):
+                    canal = p.replace("chan", "")
+                if "MTESC" in p or "Rodada" in p:
+                    sessao = p
+                    
+            condicao = "basal"
+            if "LAC" in sessao.upper(): condicao = "LAC"
+            elif "NOCI" in sessao.upper(): condicao = "NOCI"
                 
             try:
                 df = pd.read_csv(refinados_path)

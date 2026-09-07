@@ -18,3 +18,10 @@ __pycache__/
 TESTE_INTEGRACAO_OUT/
 
 pre_projeto_mestrado.md
+
+# Arquivos de dados e resultados
+comodulogramas/
+figuras/
+dataset_mestre_final.csv
+template_comportamento.csv
+roda_lote_mtesc.ps1

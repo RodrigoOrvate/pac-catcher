@@ -46,14 +46,14 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--pasta_ns2", required=True)
-    ap.add_argument("--casos", required=True,
+    ap.add_argument("--csv", required=True,
                     help="'rotulo,arquivo,ini,fim,fp,fa;...'")
     ap.add_argument("--saida", default=None,
                     help="opcional: grava footprint.csv (rotulo, canal, z)")
     args = ap.parse_args()
 
     casos = []
-    for c in args.casos.split(";"):
+    for c in args.csv.split(";"):
         if not c.strip():
             continue
         rotulo, arquivo, ini, fim, fp, fa = [x.strip() for x in c.split(",")]

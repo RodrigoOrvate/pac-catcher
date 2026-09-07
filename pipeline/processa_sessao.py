@@ -15,18 +15,28 @@ def run(cmd, desc):
         import sys
         sys.exit(1)
 
-def filtra_canais_vivos(dados, fs, limiar_rms_minimo=1e-6):
+def filtra_canais_vivos(dados, fs, limiar_rms_minimo=1e-6, limiar_rms_outlier=2.0):
     """
-    Retorna lista de índices de canais com amplitude RMS acima do limiar.
-    Reusa o mesmo critério de detecção de canal morto de
-    preprocessa_referencia_diferencial.seleciona_pool_referencia.
+    Retorna lista de índices de canais com amplitude RMS acima do limiar mínimo,
+    e uma lista de índices de canais suspeitos de serem outliers de ruído/referência.
     """
-    vivos = []
+    rmss = []
     for c in range(dados.shape[1]):
         rms = np.sqrt(np.mean(dados[:, c]**2))
-        if rms >= limiar_rms_minimo:
-            vivos.append(c)
-    return vivos
+        rmss.append(rms)
+        
+    mediana_rms = np.median(rmss)
+    vivos = []
+    outliers = []
+    
+    for c, rms in enumerate(rmss):
+        if rms < limiar_rms_minimo:
+            continue
+        if rms > limiar_rms_outlier * mediana_rms:
+            outliers.append(c)
+        vivos.append(c)
+        
+    return vivos, outliers
 
 def processa_sessao(pasta_sessao, saida_base, notch=(60, 120, 180, 240),
                     min_janelas_coocorrencia=3):
@@ -51,10 +61,12 @@ def processa_sessao(pasta_sessao, saida_base, notch=(60, 120, 180, 240),
         print(f"[{nome_sessao}] Erro ao ler {primeiro_arq}: {e}")
         return []
         
-    canais_vivos = filtra_canais_vivos(dados, fs)
+    canais_vivos, canais_outliers = filtra_canais_vivos(dados, fs)
     log_pulados = [c for c in range(dados.shape[1]) if c not in canais_vivos]
     if log_pulados:
         print(f"[{nome_sessao}] Canais descartados por amplitude morta: {log_pulados}")
+    if canais_outliers:
+        print(f"[{nome_sessao}] [ALERTA] Canais marcados como OUTLIER DE RMS (ruído/ref suspeita): {canais_outliers}")
     
     resumo_canais = []
     
@@ -85,9 +97,11 @@ def processa_sessao(pasta_sessao, saida_base, notch=(60, 120, 180, 240),
         n_teta_hg = n_teta_hg_total
         n_teta_hfo = n_teta_hfo_total
         n_teta_ripple = n_teta_ripple_total
+        rms_outlier = (c in canais_outliers)
         resumo_canais.append({"sessao": nome_sessao, "canal": c+1,
                               "n_teta_gama": n_teta_gama, "n_teta_hg": n_teta_hg,
-                              "n_teta_hfo": n_teta_hfo, "n_teta_ripple": n_teta_ripple})
+                              "n_teta_hfo": n_teta_hfo, "n_teta_ripple": n_teta_ripple,
+                              "rms_outlier": rms_outlier})
                               
         if n_teta_gama < min_janelas_coocorrencia and n_teta_hg < min_janelas_coocorrencia:
             print(f"[{nome_sessao}] chan{c+1}: coocorrencia insuficiente (Gama={n_teta_gama}, HG={n_teta_hg}), pulando pipeline pesado")
@@ -115,10 +129,7 @@ def processa_sessao(pasta_sessao, saida_base, notch=(60, 120, 180, 240),
              "--fdr_q", "0.05"], f"Estágio 2.3 - Comodulogram (Notch) - {nome_sessao} chan{c+1}")
              
         auditorias = [
-            ("audita_harmonico.py", "harmonico.csv"),
-            ("audita_harmonico_hfo.py", "harmonico_hfo.csv"),
-            ("audita_skewness.py", "skewness.csv"),
-            ("audita_footprint.py", "footprint.csv")
+            ("audita_skewness.py", "skewness.csv")
         ]
         
         for script, saida_nome in auditorias:

@@ -84,7 +84,8 @@ def main():
         canal = str(r["canal"])
         arquivo = str(r["arquivo"])
         path = os.path.join(args.pasta_ns2, arquivo)
-        ini, fim = float(r["inicio_s"]), float(r["fim_s"])
+        ini = float(r.get("janela_ini_s", r.get("inicio_s", 0)))
+        fim = float(r.get("janela_fim_s", r.get("fim_s", 0)))
 
         try:
             skew, n = theta_skewness_for_window(path, canal, ini, fim)

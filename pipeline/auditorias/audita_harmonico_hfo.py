@@ -175,7 +175,10 @@ def main():
         except Exception as e:
             print(f"  {ini:.0f}-{fim:.0f}s: ERRO ao carregar — {e}")
             linhas.append({"janela": f"{ini:.0f}-{fim:.0f}s",
-                           "veredito": "ERRO_CARGA", "motivo": str(e)})
+                           "arquivo": arquivo, "canal": canal_str,
+                           "par": r.get("par", "theta_hfo"),
+                           "janela_ini_s": ini, "janela_fim_s": fim,
+                           "veredito_harmonico_hfo": "ERRO_CARGA", "motivo": str(e)})
             continue
 
         # FOOOF para cf_gamma e cf_teta
@@ -191,10 +194,12 @@ def main():
             ordem_str = "n/a"
             plv_str = "n/a"
             linhas.append({
-                "janela": f"{ini:.0f}-{fim:.0f}s", "cf_gamma": None,
+                "janela": f"{ini:.0f}-{fim:.0f}s", "cf_gamma_fooof": None,
                 "erro_fooof": res_gamma["erro_ajuste"], "ordem": None, "plv": None,
-                "ratio_hfo_gamma": round(ratio, 4), "veredito": veredito,
-                "arquivo": arquivo, "canal": canal_str
+                "ratio_hfo_gamma_audit": round(ratio, 4), "veredito_harmonico_hfo": veredito,
+                "arquivo": arquivo, "canal": canal_str,
+                "par": r.get("par", "theta_hfo"),
+                "janela_ini_s": ini, "janela_fim_s": fim,
             })
             print(f"  {ini:.0f}-{fim:.0f}s     | n/a       | n/a   | n/a    | "
                   f"{ratio:.3f}  | {veredito}")
@@ -292,16 +297,20 @@ def main():
         linhas.append({
             "janela": f"{ini:.0f}-{fim:.0f}s",
             "arquivo": arquivo, "canal": canal_str,
-            "cf_gamma_fooof": round(cf_gamma, 2),
-            "cf_teta_fooof": round(cf_teta, 2) if cf_teta else None,
+            "par": r.get("par", "theta_hfo"),
+            "janela_ini_s": ini, "janela_fim_s": fim,
+            "cf_gamma_fooof": round(cf_gamma, 2) if cf_gamma else None,
+            "cf_teta_fooof_hfo": round(cf_teta, 2) if cf_teta else None,
             "erro_fooof": round(res_gamma["erro_ajuste"], 4) if res_gamma["erro_ajuste"] else None,
+            "expoente_gamma_fooof": round(res_gamma["expoente_gamma"], 4) if res_gamma.get("expoente_gamma") else None,
+            "knee_gamma_fooof": round(res_gamma["knee_gamma"], 4) if res_gamma.get("knee_gamma") else None,
             "f_hfo_pico": round(f_hfo_pico, 1),
             "ordem_harmonico_gama": ordem_g if susp_g else None,
             "ordem_harmonico_teta": ordem_t if susp_t else None,
             "plv_gamma_hfo": round(plv_g, 4) if not np.isnan(plv_g) else None,
             "plv_teta_hfo": round(plv_t, 4) if not np.isnan(plv_t) else None,
-            "ratio_hfo_gamma": round(ratio, 4),
-            "veredito": veredito,
+            "ratio_hfo_gamma_audit": round(ratio, 4),
+            "veredito_harmonico_hfo": veredito,
         })
 
     out = pd.DataFrame(linhas)

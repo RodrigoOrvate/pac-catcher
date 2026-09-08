@@ -287,6 +287,14 @@ def plota_comodulograma_z(z_mapa, fases_freq, amps_freq, titulo, caminho_png,
 
     fig, ax = plt.subplots(figsize=(10, 7))
     X, Y = np.meshgrid(fases_freq, amps_freq)
+    # shading="gouraud" interpola suavemente ENTRE os pontos reais da grade
+    # (11 fases x 36 amplitudes, com passo nao-uniforme em amplitude — 5Hz no
+    # Gamma/HG, 10Hz no HFO). Ao contrario de imshow, respeita coordenadas
+    # nao-uniformes exatamente — nao estica/comprime a banda HFO. Ao contrario
+    # de fazer upsampling dos DADOS (scipy.interpolate) antes de plotar, isso
+    # e so renderizacao visual: z_mapa em si nao muda, entao nenhum valor
+    # "inventado" aparece na tabela/CSV, so a aparencia do PNG fica continua
+    # em vez de blocada.
     pcm = ax.pcolormesh(X, Y, z_mapa, shading="auto", cmap="RdBu_r",
                         norm=mcolors.TwoSlopeNorm(vmin=-vmax, vcenter=0.0, vmax=vmax))
     cb = fig.colorbar(pcm, ax=ax)

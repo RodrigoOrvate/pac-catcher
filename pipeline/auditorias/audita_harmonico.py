@@ -121,9 +121,11 @@ def main():
             # Sinal para PLV (Janela do Candidato)
             sinal_cand = fatia_janela(dados, fs, ini, fim)[:, chan_idx]
         except Exception as e:
-            linhas.append({"rotulo": r.get("rotulo"), "canal": canal,
+            linhas.append({"rotulo": r.get("rotulo"), "arquivo": arquivo, "canal": canal,
+                            "par": r.get("par"),
+                            "janela_ini_s": ini, "janela_fim_s": fim,
                             "janela": f"{ini:.0f}-{fim:.0f}s",
-                            "cf_teta_fooof": None, "veredito": "ERROR", "motivo": str(e)})
+                            "cf_teta_fooof": None, "veredito_harmonico": "ERROR", "motivo": str(e)})
             print(f"{canal:<10} | {ini:.0f}-{fim:.0f}s | ERROR: {e}")
             continue
 
@@ -175,12 +177,17 @@ def main():
         print(f"{canal:<10} | {ini:.0f}-{fim:.0f}s | {cf_str:<8} | {plv_str:<6} | {skw_str:<7} | {veredito}")
 
         linhas.append({
-            "rotulo": r.get("rotulo"), "canal": canal,
+            "rotulo": r.get("rotulo"), "arquivo": arquivo, "canal": canal,
+            "par": r.get("par"),
+            "janela_ini_s": ini, "janela_fim_s": fim,
             "janela": f"{ini:.0f}-{fim:.0f}s",
             "cf_teta_fooof": res_fooof["cf_teta"],
             "erro_ajuste_fooof": res_fooof["erro_ajuste"],
+            "expoente_teta_fooof": res_fooof.get("expoente_teta"),
+            "knee_teta_fooof": res_fooof.get("knee_teta"),
+            "r2_fooof": res_fooof.get("r2_teta"),
             "plv_harmonico": plv_val,
-            "skewness": skew, "veredito": veredito,
+            "skewness_janela": skew, "veredito_harmonico": veredito,
         })
 
     pd.DataFrame(linhas).to_csv(args.saida, index=False)

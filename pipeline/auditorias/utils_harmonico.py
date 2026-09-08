@@ -86,7 +86,7 @@ def calcula_ratio_banda(sinal, fs, banda_num, banda_den):
     return p_num / p_den
 
 
-def extrai_cf_teta_fooof(sinal, fs, fit_range=(4, 100), theta_range=(4, 12),
+def extrai_cf_teta_fooof(sinal, fs, fit_range=(2.0, 45.0), theta_range=(4, 12),
                           theta_cf_bounds=(5, 9.5), theta_bw_limits=(2, 5),
                           min_peak_height=0.05, nperseg_s=1.2,
                           aperiodic_mode='knee', max_n_peaks=4,
@@ -106,22 +106,27 @@ def extrai_cf_teta_fooof(sinal, fs, fit_range=(4, 100), theta_range=(4, 12),
                min_peak_height=min_peak_height, peak_threshold=1.0,
                max_n_peaks=max_n_peaks)
 
+    dict_vazio = {
+        "cf_teta": None, "teta_detectado": False,
+        "erro_ajuste": None, "qualidade_ok": False, "n_picos": 0,
+        "expoente_teta": None, "knee_teta": None, "offset_teta": None, "r2_teta": None
+    }
+
     try:
         fm.fit(freqs, psd, freq_range=fit_range)
     except Exception:
-        return {"cf_teta": None, "teta_detectado": False,
-                "erro_ajuste": None, "qualidade_ok": False, "n_picos": 0}
+        return dict_vazio
 
     if not fm.has_model:
-        return {"cf_teta": None, "teta_detectado": False,
-                "erro_ajuste": None, "qualidade_ok": False, "n_picos": 0}
+        return dict_vazio
 
     try:
         erro_ajuste = fm.get_params('error')
         todos_picos = fm.get_params('peak_params')
+        ap_params = fm.get_params('aperiodic_params')
+        r2 = fm.get_params('r_squared')
     except Exception:
-        return {"cf_teta": None, "teta_detectado": False,
-                "erro_ajuste": None, "qualidade_ok": False, "n_picos": 0}
+        return dict_vazio
 
     if erro_ajuste is None:
         erro_ajuste = float('inf')
@@ -137,9 +142,25 @@ def extrai_cf_teta_fooof(sinal, fs, fit_range=(4, 100), theta_range=(4, 12),
 
     qualidade_ok = teta_detectado and erro_ajuste < 0.15
     n_picos = int(len(todos_picos)) if todos_picos is not None else 0
-    return {"cf_teta": cf_teta, "teta_detectado": teta_detectado,
-            "erro_ajuste": erro_ajuste, "qualidade_ok": qualidade_ok,
-            "n_picos": n_picos}
+
+    exp_val = float(ap_params[2]) if (ap_params is not None and len(ap_params) == 3) else (
+        float(ap_params[1]) if (ap_params is not None and len(ap_params) == 2) else None
+    )
+    knee_val = float(ap_params[1]) if (ap_params is not None and len(ap_params) == 3) else None
+    offset_val = float(ap_params[0]) if (ap_params is not None and len(ap_params) >= 1) else None
+    r2_val = float(r2) if r2 is not None else None
+
+    return {
+        "cf_teta": cf_teta,
+        "teta_detectado": teta_detectado,
+        "erro_ajuste": erro_ajuste,
+        "qualidade_ok": qualidade_ok,
+        "n_picos": n_picos,
+        "expoente_teta": exp_val,
+        "knee_teta": knee_val,
+        "offset_teta": offset_val,
+        "r2_teta": r2_val
+    }
 
 
 def extrai_cf_gamma_fooof(sinal, fs, fit_range=None, gamma_cf_bounds=(25, 90),
@@ -148,8 +169,8 @@ def extrai_cf_gamma_fooof(sinal, fs, fit_range=None, gamma_cf_bounds=(25, 90),
                            preprocessar_linha=True, modo_preprocesso='hibrido',
                            f_linha=60.0):
     if fit_range is None:
-        f_max = min(300.0, fs * 0.5 * 0.95)
-        fit_range = (4.0, f_max)
+        f_max = min(250.0, fs * 0.5 * 0.95)
+        fit_range = (35.0, f_max)
 
     nperseg = int(nperseg_s * fs)
     nfft = max(nperseg, 4 * int(fs)) 
@@ -166,25 +187,29 @@ def extrai_cf_gamma_fooof(sinal, fs, fit_range=None, gamma_cf_bounds=(25, 90),
                min_peak_height=min_peak_height,
                peak_threshold=1.0,
                max_n_peaks=max_n_peaks)
+
+    dict_vazio = {
+        "cf_gamma": None, "gamma_detectado": False,
+        "erro_ajuste": None, "qualidade_ok": False,
+        "n_picos": 0, "cf_gamma_alternativo": [],
+        "expoente_gamma": None, "knee_gamma": None, "offset_gamma": None, "r2_gamma": None
+    }
+
     try:
         fm.fit(freqs, psd, freq_range=fit_range)
     except Exception:
-        return {"cf_gamma": None, "gamma_detectado": False,
-                "erro_ajuste": None, "qualidade_ok": False,
-                "n_picos": 0, "cf_gamma_alternativo": []}
+        return dict_vazio
 
     if not fm.has_model:
-        return {"cf_gamma": None, "gamma_detectado": False,
-                "erro_ajuste": None, "qualidade_ok": False,
-                "n_picos": 0, "cf_gamma_alternativo": []}
+        return dict_vazio
 
     try:
         erro_ajuste = fm.get_params('error')
         todos_picos = fm.get_params('peak_params')
+        ap_params = fm.get_params('aperiodic_params')
+        r2 = fm.get_params('r_squared')
     except Exception:
-        return {"cf_gamma": None, "gamma_detectado": False,
-                "erro_ajuste": None, "qualidade_ok": False,
-                "n_picos": 0, "cf_gamma_alternativo": []}
+        return dict_vazio
 
     if erro_ajuste is None:
         erro_ajuste = float('inf')
@@ -206,6 +231,13 @@ def extrai_cf_gamma_fooof(sinal, fs, fit_range=None, gamma_cf_bounds=(25, 90),
     n_picos = int(len(todos_picos)) if todos_picos is not None else 0
     qualidade_ok = gamma_detectado and erro_ajuste < 0.20
 
+    exp_val = float(ap_params[2]) if (ap_params is not None and len(ap_params) == 3) else (
+        float(ap_params[1]) if (ap_params is not None and len(ap_params) == 2) else None
+    )
+    knee_val = float(ap_params[1]) if (ap_params is not None and len(ap_params) == 3) else None
+    offset_val = float(ap_params[0]) if (ap_params is not None and len(ap_params) >= 1) else None
+    r2_val = float(r2) if r2 is not None else None
+
     return {
         "cf_gamma": cf_gamma,
         "gamma_detectado": gamma_detectado,
@@ -213,6 +245,10 @@ def extrai_cf_gamma_fooof(sinal, fs, fit_range=None, gamma_cf_bounds=(25, 90),
         "qualidade_ok": qualidade_ok,
         "n_picos": n_picos,
         "cf_gamma_alternativo": alternativas,
+        "expoente_gamma": exp_val,
+        "knee_gamma": knee_val,
+        "offset_gamma": offset_val,
+        "r2_gamma": r2_val
     }
 
 

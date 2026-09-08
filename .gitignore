@@ -23,5 +23,9 @@ pre_projeto_mestrado.md
 comodulogramas/
 figuras/
 dataset_mestre_final.csv
+dataset_mestre_final_v2.csv
 template_comportamento.csv
 roda_lote_mtesc.ps1
+*.png
+*.pdf
+*.csv

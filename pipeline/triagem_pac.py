@@ -458,6 +458,10 @@ def roda_demo(pares=None):
 # ==========================================
 
 def main():
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
     ap = argparse.ArgumentParser(description=__doc__,
                                   formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--pasta",  help="Pasta contendo arquivos .ns2")

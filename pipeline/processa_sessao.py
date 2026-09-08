@@ -5,6 +5,14 @@ import numpy as np
 import pandas as pd
 from ns2_utils import carrega_dados
 
+# Os 3 pares reconhecidos por refina_candidatos.py/comodulogram.py.
+# processa_sessao.py precisa iterar sobre TODOS eles: comodulogram.py filtra
+# internamente por --par (default "theta_gamma"), entao chama-lo uma unica vez
+# sem essa flag descarta silenciosamente 100% dos candidatos de theta_hg e
+# theta_hfo do Estagio 2.3 (nenhum comodulograma, nenhuma linha em
+# resumo_comodulogramas.csv para esses dois pares).
+PARES = ["theta_gamma", "theta_hg", "theta_hfo"]
+
 def run(cmd, desc):
     print(f"\n[ORQUESTRADOR] >>> {desc} <<<")
     cmd_str = " ".join(cmd)
@@ -113,6 +121,7 @@ def processa_sessao(pasta_sessao, saida_base, notch=(60, 120, 180, 240),
         
         run(["python", "pipeline/triagem_pac.py",
              "--pasta", pasta_sessao, "--canal", str(c), 
+             "--pares", *PARES,
              "--saida", triagem_csv], f"Estágio 2.1 - Triagem PAC - {nome_sessao} chan{c+1}")
              
         run(["python", "pipeline/refina_candidatos.py",
@@ -123,20 +132,78 @@ def processa_sessao(pasta_sessao, saida_base, notch=(60, 120, 180, 240),
         # Mas vamos rodar os filtros independentemente.
         
         notch_str = [str(n) for n in notch]
-        run(["python", "pipeline/comodulogram.py",
-             "--csv", refinados_csv, "--pasta_ns2", pasta_sessao,
-             "--canal", str(c), "--notch", *notch_str,
-             "--fdr_q", "0.05"], f"Estágio 2.3 - Comodulogram (Notch) - {nome_sessao} chan{c+1}")
-             
-        auditorias = [
-            ("audita_skewness.py", "skewness.csv")
-        ]
-        
-        for script, saida_nome in auditorias:
-            run(["python", f"pipeline/auditorias/{script}",
+
+        # ESTÁGIO 2.3: Comodulogram — um run POR PAR, senão theta_hg e theta_hfo
+        # nunca chegam a ser processados (ver comentário em PARES acima).
+        resumos_comod = []
+        for par in PARES:
+            saida_dir_par = os.path.join(saida_canal, "comodulogramas", par)
+            run(["python", "pipeline/comodulogram.py",
                  "--csv", refinados_csv, "--pasta_ns2", pasta_sessao,
-                 "--saida", os.path.join(saida_canal, saida_nome)],
-                 f"Estágio 2.4 - {script} - {nome_sessao} chan{c+1}")
+                 "--canal", str(c), "--notch", *notch_str,
+                 "--par", par, "--saida_dir", saida_dir_par,
+                 "--fdr_q", "0.05"],
+                f"Estágio 2.3 - Comodulogram ({par}) - {nome_sessao} chan{c+1}")
+
+            resumo_par_csv = os.path.join(saida_dir_par, "resumo_comodulogramas.csv")
+            if os.path.exists(resumo_par_csv):
+                df_resumo_par = pd.read_csv(resumo_par_csv)
+                if len(df_resumo_par) > 0:
+                    resumos_comod.append(df_resumo_par)
+
+        resumo_comod_canal_csv = os.path.join(saida_canal, "resumo_comodulogramas.csv")
+        if resumos_comod:
+            pd.concat(resumos_comod, ignore_index=True).to_csv(resumo_comod_canal_csv, index=False)
+        else:
+            print(f"[{nome_sessao}] chan{c+1}: nenhum comodulograma gerado em nenhum par — "
+                  f"pulando auditorias harmônicas (dependem de fase_pico_hz/amp_pico_hz).")
+
+        # ESTÁGIO 2.4: Auditorias
+        # audita_skewness.py depende só da janela (nao do par) — roda 1x sobre
+        # refinados.csv deduplicado por janela para nao triplicar linhas
+        # (refinados.csv tem 1 linha por par; a mesma janela aparece ate 3x).
+        df_refinados = pd.read_csv(refinados_csv) if os.path.exists(refinados_csv) else pd.DataFrame()
+        skew_input_csv = refinados_csv
+        if len(df_refinados) > 0:
+            chave_janela = ["arquivo", "canal", "janela_ini_s", "janela_fim_s"]
+            df_dedup = df_refinados.drop_duplicates(subset=chave_janela)
+            if len(df_dedup) < len(df_refinados):
+                skew_input_csv = os.path.join(saida_canal, "_refinados_dedup_janela.csv")
+                df_dedup.to_csv(skew_input_csv, index=False)
+
+        run(["python", "pipeline/auditorias/audita_skewness.py",
+             "--csv", skew_input_csv, "--pasta_ns2", pasta_sessao,
+             "--saida", os.path.join(saida_canal, "skewness.csv")],
+            f"Estágio 2.4 - audita_skewness.py - {nome_sessao} chan{c+1}")
+
+        # audita_harmonico.py (teta -> par ativo) precisa de fase_pico_hz/amp_pico_hz,
+        # que só existem em resumo_comodulogramas.csv (não em refinados.csv).
+        # Roda 1x por par que de fato gerou comodulogramas.
+        harmonicos = []
+        for df_resumo_par in resumos_comod:
+            par_atual = df_resumo_par["par"].iloc[0]
+            resumo_par_path = os.path.join(saida_canal, f"_resumo_{par_atual}.csv")
+            df_resumo_par.to_csv(resumo_par_path, index=False)
+            harmonico_par_csv = os.path.join(saida_canal, f"harmonico_{par_atual}.csv")
+            run(["python", "pipeline/auditorias/audita_harmonico.py",
+                 "--csv", resumo_par_path, "--pasta_ns2", pasta_sessao,
+                 "--saida", harmonico_par_csv],
+                f"Estágio 2.4 - audita_harmonico.py ({par_atual}) - {nome_sessao} chan{c+1}")
+            if os.path.exists(harmonico_par_csv):
+                df_h = pd.read_csv(harmonico_par_csv)
+                if len(df_h) > 0:
+                    harmonicos.append(df_h)
+
+            # audita_harmonico_hfo.py (gama/teta -> HFO) só faz sentido para o par teta-HFO
+            if par_atual == "theta_hfo":
+                run(["python", "pipeline/auditorias/audita_harmonico_hfo.py",
+                     "--csv", resumo_par_path, "--pasta_ns2", pasta_sessao,
+                     "--saida", os.path.join(saida_canal, "harmonico_hfo.csv")],
+                    f"Estágio 2.4 - audita_harmonico_hfo.py - {nome_sessao} chan{c+1}")
+
+        if harmonicos:
+            pd.concat(harmonicos, ignore_index=True).to_csv(
+                os.path.join(saida_canal, "harmonico.csv"), index=False)
                  
     pd.DataFrame(resumo_canais).to_csv(
         os.path.join(saida_sessao, "resumo_canais.csv"), index=False)

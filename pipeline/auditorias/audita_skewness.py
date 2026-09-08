@@ -91,9 +91,10 @@ def main():
             skew, n = theta_skewness_for_window(path, canal, ini, fim)
         except Exception as e:
             print(f"{canal:<10} | ERROR: {e}")
-            linhas.append({"rotulo": r.get("rotulo"), "canal": canal,
+            linhas.append({"rotulo": r.get("rotulo"), "arquivo": arquivo, "canal": canal,
+                           "janela_ini_s": ini, "janela_fim_s": fim,
                            "janela": f"{ini:.0f}-{fim:.0f}s", "janela_tipo": "full",
-                           "n": np.nan, "skewness": np.nan, "veredito": "ERROR",
+                           "n": np.nan, "skewness": np.nan, "veredito_skew": "ERROR",
                            "motivo": str(e)})
             continue
 
@@ -101,9 +102,10 @@ def main():
         if n < 500:
             veredito += " [n baixo, checar manualmente]"
         print(f"{canal:<10} | {ini:.0f}-{fim:.0f}s (full) | {n:<6} | {skew:<10.4f} | {veredito}")
-        linhas.append({"rotulo": r.get("rotulo"), "canal": canal,
+        linhas.append({"rotulo": r.get("rotulo"), "arquivo": arquivo, "canal": canal,
+                       "janela_ini_s": ini, "janela_fim_s": fim,
                        "janela": f"{ini:.0f}-{fim:.0f}s", "janela_tipo": "full",
-                       "n": n, "skewness": round(skew, 4), "veredito": veredito,
+                       "n": n, "skewness": round(skew, 4), "veredito_skew": veredito,
                        "motivo": ""})
 
         # ilha fina, se presente no CSV (colunas inicio_ilha_s/fim_ilha_s)
@@ -119,10 +121,11 @@ def main():
             if n_i < 500:
                 v_i += " [n baixo]"
             print(f"{canal:<10} | {ii:.0f}-{fi:.0f}s (ilha) | {n_i:<6} | {skew_i:<10.4f} | {v_i}")
-            linhas.append({"rotulo": r.get("rotulo"), "canal": canal,
+            linhas.append({"rotulo": r.get("rotulo"), "arquivo": arquivo, "canal": canal,
+                           "janela_ini_s": ii, "janela_fim_s": fi,
                            "janela": f"{ii:.0f}-{fi:.0f}s", "janela_tipo": "island",
                            "n": n_i, "skewness": round(skew_i, 4),
-                           "veredito": v_i, "motivo": ""})
+                           "veredito_skew": v_i, "motivo": ""})
 
     out = pd.DataFrame(linhas)
     out.to_csv(args.saida, index=False)

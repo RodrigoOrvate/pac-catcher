@@ -1,7 +1,13 @@
 import pandas as pd
 import os
 
-def gerar_template_comportamento(csv_path="C:/acoplamento_theta-gamma/dataset_mestre_final.csv", saida="C:/acoplamento_theta-gamma/template_comportamento.csv"):
+import argparse
+
+def gerar_template_comportamento(csv_path, saida):
+    if not os.path.exists(csv_path):
+        print(f"Dataset não encontrado: {csv_path}")
+        return
+        
     df = pd.read_csv(csv_path)
     if len(df) == 0:
         print("Dataset vazio!")
@@ -26,4 +32,9 @@ def gerar_template_comportamento(csv_path="C:/acoplamento_theta-gamma/dataset_me
     print(f"Salvo em: {saida}")
 
 if __name__ == '__main__':
-    gerar_template_comportamento()
+    parser = argparse.ArgumentParser(description="Gera o template CSV vazio para anotação de comportamento.")
+    parser.add_argument("--csv_mestre", default="dataset_mestre_final.csv", help="Caminho do CSV mestre (entrada)")
+    parser.add_argument("--saida", default="template_comportamento.csv", help="Caminho do template (saída)")
+    args = parser.parse_args()
+    
+    gerar_template_comportamento(args.csv_mestre, args.saida)

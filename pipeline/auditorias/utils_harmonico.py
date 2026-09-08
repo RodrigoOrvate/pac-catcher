@@ -86,6 +86,27 @@ def calcula_ratio_banda(sinal, fs, banda_num, banda_den):
     return p_num / p_den
 
 
+def _knee_valido(knee, exp, fit_range):
+    """
+    Diagnostico padrao de identificabilidade do parametro de knee no FOOOF
+    (Donoghue et al. 2020): a frequencia de joelho derivada f = knee^(1/chi)
+    deve cair DENTRO da faixa que foi de fato ajustada. Fora disso (ou knee<=0)
+    e sinal de parametro nao-identificavel — o otimizador empurrou o knee pra
+    um valor sem sustentacao nos dados (pode ir a zero, negativo, ou explodir
+    pra valores astronomicos), normalmente absorvendo ruido/variancia residual
+    em vez de capturar curvatura aperiodica real. Nesses casos o expoente
+    (usado como proxy de E/I) tambem fica contaminado, porque knee e expoente
+    trocam vies entre si quando o joelho nao esta bem restringido.
+    """
+    if knee is None or exp is None or knee <= 0 or exp <= 0:
+        return False
+    try:
+        f_joelho = knee ** (1.0 / exp)
+    except Exception:
+        return False
+    return fit_range[0] <= f_joelho <= fit_range[1]
+
+
 def extrai_cf_teta_fooof(sinal, fs, fit_range=(2.0, 45.0), theta_range=(4, 12),
                           theta_cf_bounds=(5, 9.5), theta_bw_limits=(2, 5),
                           min_peak_height=0.05, nperseg_s=1.2,
@@ -109,7 +130,8 @@ def extrai_cf_teta_fooof(sinal, fs, fit_range=(2.0, 45.0), theta_range=(4, 12),
     dict_vazio = {
         "cf_teta": None, "teta_detectado": False,
         "erro_ajuste": None, "qualidade_ok": False, "n_picos": 0,
-        "expoente_teta": None, "knee_teta": None, "offset_teta": None, "r2_teta": None
+        "expoente_teta": None, "knee_teta": None, "offset_teta": None, "r2_teta": None,
+        "knee_valido_teta": False
     }
 
     try:
@@ -149,6 +171,7 @@ def extrai_cf_teta_fooof(sinal, fs, fit_range=(2.0, 45.0), theta_range=(4, 12),
     knee_val = float(ap_params[1]) if (ap_params is not None and len(ap_params) == 3) else None
     offset_val = float(ap_params[0]) if (ap_params is not None and len(ap_params) >= 1) else None
     r2_val = float(r2) if r2 is not None else None
+    knee_valido = _knee_valido(knee_val, exp_val, fit_range)
 
     return {
         "cf_teta": cf_teta,
@@ -159,7 +182,8 @@ def extrai_cf_teta_fooof(sinal, fs, fit_range=(2.0, 45.0), theta_range=(4, 12),
         "expoente_teta": exp_val,
         "knee_teta": knee_val,
         "offset_teta": offset_val,
-        "r2_teta": r2_val
+        "r2_teta": r2_val,
+        "knee_valido_teta": knee_valido
     }
 
 
@@ -192,7 +216,8 @@ def extrai_cf_gamma_fooof(sinal, fs, fit_range=None, gamma_cf_bounds=(25, 90),
         "cf_gamma": None, "gamma_detectado": False,
         "erro_ajuste": None, "qualidade_ok": False,
         "n_picos": 0, "cf_gamma_alternativo": [],
-        "expoente_gamma": None, "knee_gamma": None, "offset_gamma": None, "r2_gamma": None
+        "expoente_gamma": None, "knee_gamma": None, "offset_gamma": None, "r2_gamma": None,
+        "knee_valido_gamma": False
     }
 
     try:
@@ -248,7 +273,8 @@ def extrai_cf_gamma_fooof(sinal, fs, fit_range=None, gamma_cf_bounds=(25, 90),
         "expoente_gamma": exp_val,
         "knee_gamma": knee_val,
         "offset_gamma": offset_val,
-        "r2_gamma": r2_val
+        "r2_gamma": r2_val,
+        "knee_valido_gamma": _knee_valido(knee_val, exp_val, fit_range)
     }
 
 

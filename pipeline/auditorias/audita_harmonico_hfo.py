@@ -302,8 +302,6 @@ def main():
             "cf_gamma_fooof": round(cf_gamma, 2) if cf_gamma else None,
             "cf_teta_fooof_hfo": round(cf_teta, 2) if cf_teta else None,
             "erro_fooof": round(res_gamma["erro_ajuste"], 4) if res_gamma["erro_ajuste"] else None,
-            "expoente_gamma_fooof": round(res_gamma["expoente_gamma"], 4) if res_gamma.get("expoente_gamma") else None,
-            "knee_gamma_fooof": round(res_gamma["knee_gamma"], 4) if res_gamma.get("knee_gamma") else None,
             "f_hfo_pico": round(f_hfo_pico, 1),
             "ordem_harmonico_gama": ordem_g if susp_g else None,
             "ordem_harmonico_teta": ordem_t if susp_t else None,

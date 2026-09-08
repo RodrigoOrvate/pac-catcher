@@ -227,6 +227,8 @@ def gera_veredito(row, banda_nome):
         alertas.append(f"{int(row['n_canais_simultaneos'])} canais simultaneos (possivel ruido comum)")
     if row.get("ratio_hfo_gamma", 0) > 0.3 and "hfo" in banda_nome:
         alertas.append("ratio_hfo_gamma alto (possivel harmonico Gamma->HFO)")
+    if row.get("suspeito_banda_larga", False):
+        alertas.append("suspeito banda larga / envelope identico ao ruido")
     if alertas:
         return "Revisar: " + "; ".join(alertas)
     return "Candidato robusto"

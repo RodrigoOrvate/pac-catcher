@@ -183,9 +183,6 @@ def main():
             "janela": f"{ini:.0f}-{fim:.0f}s",
             "cf_teta_fooof": res_fooof["cf_teta"],
             "erro_ajuste_fooof": res_fooof["erro_ajuste"],
-            "expoente_teta_fooof": res_fooof.get("expoente_teta"),
-            "knee_teta_fooof": res_fooof.get("knee_teta"),
-            "r2_fooof": res_fooof.get("r2_teta"),
             "plv_harmonico": plv_val,
             "skewness_janela": skew, "veredito_harmonico": veredito,
         })

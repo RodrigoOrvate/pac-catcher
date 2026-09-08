@@ -88,12 +88,14 @@ def processa_arquivo_tarefas(file_path, tarefas_arquivo, janela_contexto_s=45.0,
                 "knee_teta_fooof": res_teta["knee_teta"],
                 "offset_teta_fooof": res_teta["offset_teta"],
                 "r2_teta_fooof": res_teta["r2_teta"],
+                "knee_valido_teta": res_teta["knee_valido_teta"],
                 "cf_gamma_fooof_v2": res_gamma["cf_gamma"],
                 "erro_gamma_fooof_v2": res_gamma["erro_ajuste"],
                 "expoente_gamma_fooof": res_gamma["expoente_gamma"],
                 "knee_gamma_fooof": res_gamma["knee_gamma"],
                 "offset_gamma_fooof": res_gamma["offset_gamma"],
                 "r2_gamma_fooof": res_gamma["r2_gamma"],
+                "knee_valido_gamma": res_gamma["knee_valido_gamma"],
             })
         except Exception as e:
             resultados.append({**t, "sucesso": False, "erro": str(e)})
@@ -175,15 +177,15 @@ def main():
     cols_novas = [
         "arquivo", "canal", "janela_ini_s", "janela_fim_s",
         "cf_teta_fooof_v2", "erro_teta_fooof_v2", "expoente_teta_fooof",
-        "knee_teta_fooof", "offset_teta_fooof", "r2_teta_fooof",
+        "knee_teta_fooof", "offset_teta_fooof", "r2_teta_fooof", "knee_valido_teta",
         "cf_gamma_fooof_v2", "erro_gamma_fooof_v2", "expoente_gamma_fooof",
-        "knee_gamma_fooof", "offset_gamma_fooof", "r2_gamma_fooof"
+        "knee_gamma_fooof", "offset_gamma_fooof", "r2_gamma_fooof", "knee_valido_gamma"
     ]
     df_res_merge = df_res[cols_novas].drop_duplicates(subset=chaves)
 
     # Merge no dataset mestre
     print("Mesclando novos dados com o dataset mestre...")
-    df_mestre_v2 = df_mestre.merge(df_res_merge, on=chaves, how="left")
+    df_mestre_v2 = df_mestre.merge(df_res_merge, on=chaves, how="left", validate="many_to_one")
 
     print(f"Salvando novo dataset mestre em: {args.saida_csv}")
     df_mestre_v2.to_csv(args.saida_csv, index=False)
@@ -196,11 +198,19 @@ def main():
         valid_r2 = df_mestre_v2["r2_teta_fooof"].dropna()
         print(f"Expoente Teta (E/I ratio) - Media: {valid_exp.mean():.3f} +- {valid_exp.std():.3f} [Min: {valid_exp.min():.2f}, Max: {valid_exp.max():.2f}]")
         print(f"R^2 do ajuste Teta (2-45 Hz) - Media: {valid_r2.mean():.4f}")
+        if "knee_valido_teta" in df_mestre_v2.columns:
+            kv = df_mestre_v2["knee_valido_teta"]
+            print(f"Knee valido (f_joelho dentro da faixa ajustada) - Teta: {kv.mean():.1%} "
+                  f"({int(kv.sum())}/{kv.notna().sum()}) — USE SO ESSES pra comparar expoente_teta_fooof entre condicoes.")
     if "expoente_gamma_fooof" in df_mestre_v2.columns:
         valid_exp_g = df_mestre_v2["expoente_gamma_fooof"].dropna()
         valid_r2_g = df_mestre_v2["r2_gamma_fooof"].dropna()
         print(f"Expoente Gama (High-freq)  - Media: {valid_exp_g.mean():.3f} +- {valid_exp_g.std():.3f} [Min: {valid_exp_g.min():.2f}, Max: {valid_exp_g.max():.2f}]")
         print(f"R^2 do ajuste Gama (35-250 Hz) - Media: {valid_r2_g.mean():.4f}")
+        if "knee_valido_gamma" in df_mestre_v2.columns:
+            kvg = df_mestre_v2["knee_valido_gamma"]
+            print(f"Knee valido (f_joelho dentro da faixa ajustada) - Gama: {kvg.mean():.1%} "
+                  f"({int(kvg.sum())}/{kvg.notna().sum()}) — USE SO ESSES pra comparar expoente_gamma_fooof entre condicoes.")
     print("==================================================")
 
 

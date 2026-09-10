@@ -25,16 +25,16 @@ import sys
 
 import numpy as np
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")
 except Exception:
     pass
 
-from ns2_utils import le_ns2, fatia_janela
-from audita_transientes import mi_z_par
-from comodulogram import aplica_notch
+from pac_core.io import le_ns2, fatia_janela
+from pipeline.auditorias.audita_transientes import mi_z_par
+from pipeline.etapa3_comodulograma.comodulogram import aplica_notch
 
 
 def _carrega(path):

@@ -20,8 +20,8 @@ except ImportError:
 
 import sys
 import os
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from linha_noise_kuhn import aplica_modo
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from pipeline.auditorias.linha_noise_kuhn import aplica_modo
 
 
 def calcula_n_max(f_fase, f_amp_max_banda, tolerancia_hz):

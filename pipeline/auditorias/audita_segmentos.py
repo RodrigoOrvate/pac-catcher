@@ -24,12 +24,13 @@ import sys
 import argparse
 import os
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 import numpy as np
 
-from ns2_utils import le_ns2, fatia_janela
-from comodulogram import aplica_notch, calcula_comodulograma_z, z_pico_par
+from pac_core.io import le_ns2, fatia_janela
+from pac_core.filtering import aplica_notch
+from pipeline.etapa3_comodulograma.comodulogram import calcula_comodulograma_z, z_pico_par
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")

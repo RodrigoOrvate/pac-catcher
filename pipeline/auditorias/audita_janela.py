@@ -53,15 +53,14 @@ import sys
 import numpy as np
 import pandas as pd
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from ns2_utils import le_ns2, fatia_janela
+from pac_core.io import le_ns2, fatia_janela
 
-from audita_skewness import skewness_de_sinal, classifica_skew
-from audita_transientes import audita_transientes_de_sinal, contexto_amplitude
-from audita_footprint import footprint_de_janela
-from audita_harmonico import avalia_harmonico
+from pipeline.auditorias.audita_skewness import skewness_de_sinal, classifica_skew
+from pipeline.auditorias.audita_transientes import audita_transientes_de_sinal, contexto_amplitude
+from pipeline.auditorias.audita_footprint import footprint_de_janela
+from pipeline.auditorias.audita_harmonico import avalia_harmonico
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")

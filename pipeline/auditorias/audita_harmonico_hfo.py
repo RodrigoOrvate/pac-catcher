@@ -47,8 +47,7 @@ except ImportError:
     )
     sys.exit(1)
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")
@@ -56,7 +55,7 @@ except Exception:
     pass
 
 
-from utils_harmonico import (
+from pipeline.auditorias.utils_harmonico import (
     extrai_cf_gamma_fooof,
     extrai_cf_teta_fooof,
     testa_razao_harmonica,
@@ -87,9 +86,9 @@ def _carrega_sinal_janela(origem, canal, ini, fim):
                 return arr[n_ini:n_fim], fs
         raise KeyError(f"Nenhuma variável de sinal encontrada em {origem}")
     else:
-        # ns2 via ns2_utils
+        # ns2 via pac_core.io
         try:
-            from ns2_utils import carrega_dados, fatia_janela
+            from pac_core.io import carrega_dados, fatia_janela
             dados, fs, canal_ids = carrega_dados(origem)
             idx = canal_ids.index(canal)
             return fatia_janela(dados, fs, ini, fim)[:, idx].astype(float), fs

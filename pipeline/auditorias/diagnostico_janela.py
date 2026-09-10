@@ -40,14 +40,13 @@ import argparse
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 import numpy as np
 import scipy.signal as signal
 import matplotlib.pyplot as plt
 
-from ns2_utils import le_ns2, fatia_janela
+from pac_core.io import le_ns2, fatia_janela
 from pac_core.filtering import filtra_sinal, aplica_notch
 from pac_core.pac_metrics import calcula_mi_com_surrogates, z_score_mi
 

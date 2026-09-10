@@ -21,14 +21,14 @@ import numpy as np
 import pandas as pd
 from scipy import signal
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")
 except Exception:
     pass
 
-from ns2_utils import carrega_dados
+from pac_core.io import carrega_dados
 
 
 def calculate_skewness(data):

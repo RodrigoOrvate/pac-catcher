@@ -54,20 +54,19 @@ except ImportError:
     sys.exit(1)
 
 # Path setup for imports
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # pipeline/auditorias/
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # pipeline/
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))  # SCRIPT/
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")
 except Exception:
     pass
 
-from ns2_utils import carrega_dados, fatia_janela
-from audita_skewness import skewness_de_sinal  # REUSO, nao duplicacao
-from linha_noise_kuhn import aplica_modo  # REUSO: limpeza de linha Kuhn (60Hz)
+from pac_core.io import carrega_dados, fatia_janela
+from pipeline.auditorias.audita_skewness import skewness_de_sinal  # REUSO, nao duplicacao
+from pipeline.auditorias.linha_noise_kuhn import aplica_modo  # REUSO: limpeza de linha Kuhn (60Hz)
 
 
-from utils_harmonico import (
+from pipeline.auditorias.utils_harmonico import (
     extrai_cf_teta_fooof,
     compute_plv_harmonico,
     testa_razao_harmonica,

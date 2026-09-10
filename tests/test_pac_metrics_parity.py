@@ -24,10 +24,8 @@ mesmo padrao dos demais arquivos em tests/.
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 _SCRIPT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _SCRIPT_ROOT)
-sys.path.insert(0, os.path.join(_SCRIPT_ROOT, "pipeline"))
 
 import numpy as np
 from scipy.signal import hilbert
@@ -43,7 +41,7 @@ from pac_core.pac_metrics import (
     p_empirico_mi,
     calcula_mi_com_surrogates,
 )
-from triagem_pac import gera_sinal_demo
+from pipeline.etapa1_triagem.triagem_pac import gera_sinal_demo
 
 
 # ==========================================

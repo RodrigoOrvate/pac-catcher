@@ -28,16 +28,17 @@ import sys
 import numpy as np
 import pandas as pd
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")
 except Exception:
     pass
 
-from ns2_utils import le_ns2, fatia_janela
-from triagem_pac import BAND_PAIRS
-from comodulogram import (aplica_notch, calcula_comodulograma_z,
+from pac_core.io import le_ns2, fatia_janela
+from pipeline.etapa1_triagem.triagem_pac import BAND_PAIRS
+from pac_core.filtering import aplica_notch
+from pipeline.etapa3_comodulograma.comodulogram import (calcula_comodulograma_z,
                           p_valores_por_celula, bh_fdr_mapa,
                           resume_cluster_fdr, z_pico_par,
                           FASES_DEFAULT, AMPS_DEFAULT)

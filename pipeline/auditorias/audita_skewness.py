@@ -43,6 +43,25 @@ def calculate_skewness(data):
     return (n / ((n - 1) * (n - 2))) * np.sum(((data - mean) / std) ** 3)
 
 
+def skewness_de_sinal(sinal, fs, fs_banda=(4, 8), order=4):
+    """Núcleo: filtra em banda teta e calcula skewness. Recebe array já
+    fatiado, em memória -- reusável por orquestradores que já carregaram
+    o arquivo (evita releitura por janela)."""
+    nyq = 0.5 * fs
+    lo, hi = fs_banda
+    b, a = signal.butter(order, [lo / nyq, hi / nyq], btype='band')
+    theta_filtered = signal.filtfilt(b, a, sinal)
+    skew = calculate_skewness(theta_filtered)
+    return skew, len(sinal)
+
+
+def classifica_skew(skew, n, limiar=0.5):
+    veredito = "SUSPECT (Asymmetric)" if abs(skew) > limiar else "CLEAN (Symmetric)"
+    if n < 500:
+        veredito += " [n baixo, checar manualmente]"
+    return veredito
+
+
 def theta_skewness_for_window(file_path, channel_name, start_s, end_s, fs_banda=(4, 8), order=4):
     dados, fs, canal_ids = carrega_dados(file_path)
     if channel_name not in canal_ids:
@@ -52,15 +71,8 @@ def theta_skewness_for_window(file_path, channel_name, start_s, end_s, fs_banda=
     idx_inicio = int(start_s * fs)
     idx_fim = int(end_s * fs)
     chan_data = dados[idx_inicio:idx_fim, chan_idx]
-    n_amostras = len(chan_data)
 
-    nyq = 0.5 * fs
-    lo, hi = fs_banda
-    b, a = signal.butter(order, [lo / nyq, hi / nyq], btype='band')
-    theta_filtered = signal.filtfilt(b, a, chan_data)
-
-    skew = calculate_skewness(theta_filtered)
-    return skew, n_amostras
+    return skewness_de_sinal(chan_data, fs, fs_banda, order)
 
 
 def main():
@@ -98,9 +110,7 @@ def main():
                            "motivo": str(e)})
             continue
 
-        veredito = "SUSPECT (Asymmetric)" if abs(skew) > args.limiar else "CLEAN (Symmetric)"
-        if n < 500:
-            veredito += " [n baixo, checar manualmente]"
+        veredito = classifica_skew(skew, n, args.limiar)
         print(f"{canal:<10} | {ini:.0f}-{fim:.0f}s (full) | {n:<6} | {skew:<10.4f} | {veredito}")
         linhas.append({"rotulo": r.get("rotulo"), "arquivo": arquivo, "canal": canal,
                        "janela_ini_s": ini, "janela_fim_s": fim,

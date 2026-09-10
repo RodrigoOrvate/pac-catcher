@@ -49,38 +49,15 @@ import matplotlib.pyplot as plt
 
 from ns2_utils import le_ns2, fatia_janela
 from pac_core.filtering import filtra_sinal, aplica_notch
-
-
-def _mi_de_bin_idx(bin_idx, envelope, n_bins):
-    soma_bins = np.bincount(bin_idx, weights=envelope, minlength=n_bins)
-    cont_bins = np.bincount(bin_idx, minlength=n_bins)
-    media_bins = np.divide(soma_bins, cont_bins, out=np.zeros(n_bins), where=cont_bins > 0)
-    soma = np.sum(media_bins)
-    if soma <= 0:
-        return 0.0
-    P = media_bins / soma
-    H = -np.sum(P * np.log(P + 1e-10))
-    return (np.log(n_bins) - H) / np.log(n_bins)
+from pac_core.pac_metrics import calcula_mi_com_surrogates, z_score_mi
 
 
 def mi_z(fase, envelope, fs, n_surr=200, n_bins=18, rng=None):
     """MI observado + z contra surrogates de deslocamento circular
     (mesma nula do triagem_pac.py)."""
-    if rng is None:
-        rng = np.random.default_rng()
-    bins = np.linspace(-np.pi, np.pi, n_bins + 1)
-    bin_idx = np.clip(np.digitize(fase, bins) - 1, 0, n_bins - 1)
-    mi_obs = _mi_de_bin_idx(bin_idx, envelope, n_bins)
-
-    n = len(envelope)
-    shift_min = int(1.0 * fs)
-    if n <= 2 * shift_min:
-        shift_min = max(1, n // 10)
-    deslocamentos = rng.integers(shift_min, n - shift_min, size=n_surr)
-    mi_surr = np.array([_mi_de_bin_idx(bin_idx, np.roll(envelope, d), n_bins)
-                        for d in deslocamentos])
-    dp = np.std(mi_surr)
-    z = (mi_obs - np.mean(mi_surr)) / dp if dp > 0 else 0.0
+    mi_obs, mi_surr = calcula_mi_com_surrogates(
+        fase, envelope, fs, n_surr=n_surr, n_bins=n_bins, rng=rng)
+    z = z_score_mi(mi_obs, mi_surr)
     return mi_obs, z
 
 

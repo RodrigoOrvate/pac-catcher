@@ -52,6 +52,10 @@ from scipy.signal import welch
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from pac_core.filtering import filtra_sinal
+from pac_core.pac_metrics import (
+    _mi_de_bin_idx, calcula_mi as calcula_mi_nucleo,
+    calcula_mi_com_surrogates, z_score_mi, p_empirico_mi,
+)
 
 # ==========================================
 # CONFIGURAÇÃO DOS PARES DE BANDA
@@ -78,27 +82,13 @@ BAND_PAIRS = {
 
 # ==========================================
 # FUNÇÕES DE PROCESSAMENTO
-# filtra_sinal agora vem de pac_core.filtering (import no topo)
+# filtra_sinal / _mi_de_bin_idx / calcula_mi_com_surrogates agora vêm de
+# pac_core (import no topo). calcula_mi/mi_com_surrogates são wrappers
+# finos que preservam nome, assinatura e formato de retorno originais.
 # ==========================================
 
 def calcula_mi(fase, envelope, n_bins=18):
-    bins = np.linspace(-np.pi, np.pi, n_bins + 1)
-    bin_idx = np.clip(np.digitize(fase, bins) - 1, 0, n_bins - 1)
-    return _mi_de_bin_idx(bin_idx, envelope, n_bins)
-
-
-def _mi_de_bin_idx(bin_idx, envelope, n_bins):
-    """Núcleo vetorizado: soma/conta por bin via bincount em vez de loop Python."""
-    soma_bins = np.bincount(bin_idx, weights=envelope, minlength=n_bins)
-    cont_bins = np.bincount(bin_idx, minlength=n_bins)
-    media_bins = np.divide(soma_bins, cont_bins, out=np.zeros(n_bins), where=cont_bins > 0)
-
-    soma = np.sum(media_bins)
-    if soma <= 0:
-        return 0.0
-    P = media_bins / soma
-    H = -np.sum(P * np.log(P + 1e-10))
-    return (np.log(n_bins) - H) / np.log(n_bins)
+    return calcula_mi_nucleo(fase, envelope, n_bins)
 
 
 def mi_com_surrogates(fase, envelope, fs, n_surr=200, n_bins=18,
@@ -109,29 +99,13 @@ def mi_com_surrogates(fase, envelope, fs, n_surr=200, n_bins=18,
 
     Retorna: mi_obs, z_score, p_empirico, mi_surr_media, mi_surr_dp
     """
-    if rng is None:
-        rng = np.random.default_rng()
-
-    bins = np.linspace(-np.pi, np.pi, n_bins + 1)
-    bin_idx = np.clip(np.digitize(fase, bins) - 1, 0, n_bins - 1)
-    mi_obs = _mi_de_bin_idx(bin_idx, envelope, n_bins)
-
-    n = len(envelope)
-    shift_min = int(shift_min_s * fs)
-    if n <= 2 * shift_min:
-        shift_min = max(1, n // 10)
-
-    mi_surr = np.empty(n_surr)
-    deslocamentos = rng.integers(shift_min, n - shift_min, size=n_surr)
-    for i, desloc in enumerate(deslocamentos):
-        env_shift = np.roll(envelope, desloc)
-        mi_surr[i] = _mi_de_bin_idx(bin_idx, env_shift, n_bins)
-
+    mi_obs, mi_surr = calcula_mi_com_surrogates(
+        fase, envelope, fs, n_surr=n_surr, n_bins=n_bins,
+        shift_min_s=shift_min_s, rng=rng)
+    z = z_score_mi(mi_obs, mi_surr)
+    p_emp = p_empirico_mi(mi_obs, mi_surr)
     media = np.mean(mi_surr)
-    dp    = np.std(mi_surr)
-    z     = (mi_obs - media) / dp if dp > 0 else 0.0
-    p_emp = float(np.mean(mi_surr >= mi_obs))
-
+    dp = np.std(mi_surr)
     return mi_obs, z, p_emp, media, dp
 
 

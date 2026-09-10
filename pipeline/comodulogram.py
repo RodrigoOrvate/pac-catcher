@@ -50,6 +50,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ns2_utils import le_ns2, carrega_dados, fatia_janela
 from triagem_pac import BAND_PAIRS
 from pac_core.filtering import filtra_sinal, aplica_notch
+from pac_core.pac_metrics import (
+    _mi_de_bin_idx, fase_para_bin_idx, gera_deslocamentos,
+    mi_surrogates_de_deslocamentos, z_score_mi_mapa,
+)
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")
@@ -69,20 +73,10 @@ AMPS_DEFAULT  = np.concatenate([               # grade mais densa onde importa
 
 # ==========================================
 # NÚCLEO DE CÁLCULO (mesmo MI dos outros scripts)
-# filtra_sinal / aplica_notch agora vêm de pac_core.filtering (import no topo)
+# filtra_sinal / aplica_notch / _mi_de_bin_idx agora vêm de pac_core
+# (import no topo). _mi_de_bin_idx é reexportada aqui porque outros
+# módulos fazem `from comodulogram import _mi_de_bin_idx`.
 # ==========================================
-
-def _mi_de_bin_idx(bin_idx, envelope, n_bins):
-    soma_bins = np.bincount(bin_idx, weights=envelope, minlength=n_bins)
-    cont_bins = np.bincount(bin_idx, minlength=n_bins)
-    media_bins = np.divide(soma_bins, cont_bins, out=np.zeros(n_bins), where=cont_bins > 0)
-    soma = np.sum(media_bins)
-    if soma <= 0:
-        return 0.0
-    P = media_bins / soma
-    H = -np.sum(P * np.log(P + 1e-10))
-    return (np.log(n_bins) - H) / np.log(n_bins)
-
 
 def calcula_comodulograma_z(lfp_ativo, fs, fases_freq, amps_freq,
                             n_surr=200, n_bins=18, rng=None, notch_hz=None,
@@ -101,22 +95,18 @@ def calcula_comodulograma_z(lfp_ativo, fs, fases_freq, amps_freq,
     p-valor por célula do FDR.
 
     Eficiência: cada frequência é filtrada UMA vez (fase e amplitude);
-    os surrogates só rolam o envelope já pronto, que é barato -- mesmo
-    padrão vetorizado do mi_com_surrogates() do triagem_pac.py.
+    UM único conjunto de deslocamentos é sorteado (via
+    pac_core.pac_metrics.gera_deslocamentos) e compartilhado por todas as
+    células do mapa -- não um sorteio por célula.
     """
-    if rng is None:
-        rng = np.random.default_rng()
-
     if notch_hz:
         lfp_ativo = aplica_notch(lfp_ativo, fs, freqs_notch=notch_hz)
-
-    bins = np.linspace(-np.pi, np.pi, n_bins + 1)
 
     fases_por_freq = []
     for f_fase in fases_freq:
         lfp_fase = filtra_sinal(lfp_ativo, f_fase - 1.0, f_fase + 1.0, fs)
         fase = np.angle(signal.hilbert(lfp_fase))
-        fases_por_freq.append(np.clip(np.digitize(fase, bins) - 1, 0, n_bins - 1))
+        fases_por_freq.append(fase_para_bin_idx(fase, n_bins))
 
     envelopes_por_freq = []
     for f_amp in amps_freq:
@@ -124,23 +114,17 @@ def calcula_comodulograma_z(lfp_ativo, fs, fases_freq, amps_freq,
         envelopes_por_freq.append(np.abs(signal.hilbert(lfp_amp)))
 
     n = lfp_ativo.size
-    shift_min = int(1.0 * fs)  # >= 1s de deslocamento, igual à nula do triagem
-    if n <= 2 * shift_min:
-        shift_min = max(1, n // 10)
-    deslocamentos = rng.integers(shift_min, n - shift_min, size=n_surr)
+    deslocamentos = gera_deslocamentos(n, fs, n_surr=n_surr, rng=rng)
 
     mi_obs_mapa = np.zeros((len(amps_freq), len(fases_freq)))
     mi_surr_mapa = np.zeros((len(amps_freq), len(fases_freq), n_surr))
     for i, bin_idx in enumerate(fases_por_freq):
         for j, env in enumerate(envelopes_por_freq):
             mi_obs_mapa[j, i] = _mi_de_bin_idx(bin_idx, env, n_bins)
-            for k, desloc in enumerate(deslocamentos):
-                mi_surr_mapa[j, i, k] = _mi_de_bin_idx(bin_idx, np.roll(env, desloc), n_bins)
+            mi_surr_mapa[j, i, :] = mi_surrogates_de_deslocamentos(
+                bin_idx, env, deslocamentos, n_bins)
 
-    media = mi_surr_mapa.mean(axis=2)
-    dp = mi_surr_mapa.std(axis=2)
-    z_mapa = np.divide(mi_obs_mapa - media, dp,
-                       out=np.zeros_like(mi_obs_mapa), where=dp > 0)
+    z_mapa = z_score_mi_mapa(mi_obs_mapa, mi_surr_mapa)
 
     if retorna_mi:
         return z_mapa, mi_obs_mapa, mi_surr_mapa

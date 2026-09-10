@@ -21,10 +21,29 @@ comodulogram.py         → etapa 3: mapas z...scoredos ±notch + FDR do mapa
 diagnostico_janela.py   → etapa 5: 5 painéis + MI respiração vs θ×γ
 robustez_parametros.py  → etapa 7 (validação): sweep de parâmetros + MVL
 figura_apresentacao.py  → etapa 7 (opcional): figuras dos vencedores
+agrega_resultados.py         → constrói o dataset mestre (merge por canal)
+enriquece_dataset_mestre.py  → FOOOF v2 + portão de banda larga no mestre
 audita_*.py             → auditorias pós...hoc (transientes, segmentos,
-                          pegada espacial, robustez de grooming)
-ns2_utils.py            → utilitários compartilhados (leitura .ns2 + fatia)
+                          pegada espacial, held-out, harmônico...)
+audita_janela.py        → orquestrador forense: as 4 auditorias
+                          compatíveis (skew+transientes+footprint+
+                          harmônico) numa só passada por canal/janela
+pac_core/               → núcleo matemático compartilhado (refatoração
+                          2026-09): io.py, filtering.py, pac_metrics.py.
+                          ns2_utils.py e demais "shims" listados abaixo
+                          reexportam daqui — ver seção dedicada.
 ```
+
+**Refatoração 2026-09 (Fatia 1+2):** o pipeline passou por uma consolidação
+para eliminar duplicação de código entre os scripts (filtro, notch,
+leitura de arquivo, KL-MI+surrogates viviam copiados em 4-6 lugares cada).
+Toda a matemática compartilhada agora mora em `pac_core/` (ver seção
+dedicada mais abaixo) e os scripts antigos viraram wrappers finos —
+**nenhum resultado numérico mudou** (cada migração foi validada com
+paridade bit-exata contra dados reais antes/depois, `tests/
+test_pac_metrics_parity.py` é o gate permanente). Se você rodou o
+pipeline antes dessa data, não precisa rodar de novo — os CSVs já
+gerados continuam válidos.
 
 .........
 
@@ -69,8 +88,9 @@ python triagem_pac.py ......pasta "<sessao>/<BASAL>" \
 ... `......demo` roda um teste com dados sintéticos (theta com jitter de
   frequência + acoplamento genuíno na metade) para validar o corte
   por z antes de usar em dados reais.
-... A variável `filtra_sinal` (filtro butterworth bandpass, `filtfilt`)
-  é interna e idêntica à dos outros scripts.
+... `filtra_sinal` (filtro butterworth bandpass, `filtfilt`) vem de
+  `pac_core/filtering.py` — mesma implementação em todos os scripts
+  que a usam, não mais cópias locais (ver seção "Núcleo Compartilhado").
 
 .........
 
@@ -120,9 +140,10 @@ python refina_candidatos.py ......csv resultados.csv \
 `proxy_saturacao`, `proxy_artefato_motor_150_450hz`, `significativo_fdr`,
 `veredito`.
 
-**Nota:** `filtra_sinal`, `_mi_de_bin_idx` e `bh_fdr` são funções
-internas reutilizadas em quase todos os scripts do pipeline (mesma
-matemática do triagem e do comodulograma).
+**Nota:** `filtra_sinal` e `_mi_de_bin_idx` vêm de `pac_core/filtering.py`
+e `pac_core/pac_metrics.py` respectivamente — núcleo único, importado
+(não copiado) por praticamente todos os scripts do pipeline. `bh_fdr`
+permanece local a cada script que a usa (não migrada para `pac_core`).
 
 .........
 
@@ -418,6 +439,11 @@ produzem z alto. Esta auditoria discrimina com 5 blocos:
 **Saída:** `auditoria/auditoria_transientes.csv`, `auditoria/
 contexto_amplitude.csv`, PNG por caso.
 
+**Núcleo reutilizável:** `audita_transientes_de_sinal(lfp, fs, fp, fa, ...)`
+encapsula os blocos 2-3 (baseline → despike k6/k5 → sub-janelas →
+histograma de fase) para um sinal já em memória — é o que
+`audita_janela.py` chama internamente, sem reler o arquivo.
+
 **CLI (sessão 08/07 default):** `python audita_transientes.py`
 **Nova sessão (via CLI, casos nunca no código):**
 ```bash
@@ -454,11 +480,13 @@ python audita_segmentos.py ......pasta "<sessao>/<BASAL>" \
 
 **Leitura:** o caso "rearing" (chan18/20/30/32, 4 canais) é referência do que é pegada *local*. O grooming (chan22 + cluster 22/24/26/28) é *focal*. Se 26 dos 32 canais estão em z ≥ 3, é incompatível com cabo/EMG difuso.
 
+**Núcleo reutilizável:** `footprint_de_janela(dados, fs, nomes, ini, fim, fp, fa)` roda o loop pelos 32 canais sobre dados já carregados — `audita_janela.py` chama isso, não relê o arquivo. É a auditoria mais cara das 4 do orquestrador (32× o custo de `mi_z_par` para um único canal); `--pula footprint` descarta.
+
 **Uso:** `python audita_footprint.py` (default: sessão 08/07, 3 janelas pré-configuradas). Para outra sessão, edite a lista `JANELAS` no topo do script ou passe alvos via linha de comando.
 
 ---
 
-## 10. `audita_grooming_robustez.py` — Robustez do núcleo de grooming
+## 10. `audita_grooming_robustez.py` — Robustez do núcleo de grooming *(script não encontrado no repositório atual — histórico da investigação preservado abaixo, mas o arquivo em si parece ter sido removido/renomeado antes da refatoração 2026-09; não é parte do trabalho de consolidação)*
 
 **O que faz:** verifica se o *núcleo* de grooming do vencedor 2 (003 @ 20–27 s, par 5×35 Hz, re-ancorado no vídeo) sobrevive ao mesmo batizado dos outros vencedores: sweep de n_bins + MVL no chan22 + consistência nos vizinhos chan24/26/28.
 
@@ -488,9 +516,11 @@ python audita_segmentos.py ......pasta "<sessao>/<BASAL>" \
 2. **Forma de onda**: skewness do teta (reusado de `audita_skewness.py`)
 3. **Fase**: PLV entre `n × phi_theta` e `phi_gamma` — discriminador mais forte
 
-**Veredito:** `CLEAN` / `REVISAR_RAZAO_INTEIRA` / `REVISAR_FASE_TRAVADA` / `SUSPEITO_HARMONICO_FORTE` / `SEM_REFERENCIA_TETA`
+**Veredito:** `CLEAN` / `REVISAR_RAZAO_INTEIRA` / `REVISAR_FASE_TRAVADA` / `SUSPEITO_HARMONICO_FORTE` / `SEM_REFERENCIA_TETA` / `AMBIGUO_MULTIPLOS_N` / `REVISAR_TETA_ASSIMETRICO`
 
-**CLI:**
+**Núcleo reutilizável:** `avalia_harmonico(sinal_ctx, sinal_cand, fs, amp_pico, skew=...)` encapsula a árvore de decisão inteira (FOOOF → razão harmônica → PLV → veredito). **Atenção ao dtype:** `sinal_ctx`/`sinal_cand` precisam manter o dtype bruto de `le_ns2` (`int16`, sem `.astype(float)` prévio) — convertê-los antes faz o ajuste do FOOOF divergir na 9ª casa decimal (achado da migração, não é diferença de precisão trivial). `audita_janela.py` respeita isso.
+
+**CLI (congelada — `processa_sessao.py` chama este script em produção via subprocess, não mudar nome de flag nem coluna de saída):**
 ```bash
 python audita_harmonico.py --csv "<sessao>/RESULTADOS/vencedores.csv"     --pasta_ns2 "<sessao>/<BASAL>"     --saida "<sessao>/RESULTADOS/harmonico.csv"     --janela_contexto_s 45 --modo_preprocesso hibrido --f_linha 60.0
 ```
@@ -528,6 +558,82 @@ Para correlacionar os episódios de acoplamento detectados com o comportamento r
 
 ### 14.3 `junta_comportamento.py` — Mesclagem com o Dataset Mestre
 - **O que faz:** Combina as anotações feitas no `template_comportamento.csv` de volta ao dataset mestre de resultados (`dataset_mestre_final_v2.csv`), propagando o comportamento anotado para todos os canais correspondentes àquela janela temporal.
+
+---
+
+## 15. `audita_skewness.py` — Assimetria do Teta (dente-de-serra)
+
+**O que faz:** filtra a banda teta (4-8 Hz, Butterworth ordem 4, `filtfilt`) e calcula o coeficiente padronizado de Fisher-Pearson (skewness amostral). `|skewness| > limiar` (default 0.5) = `SUSPECT (Asymmetric)` — teta não-senoidal que pode gerar harmônicos espúrios na banda de amplitude (mesmo mecanismo do `audita_harmonico.py`, mas julgando pela forma de onda em vez de FOOOF+PLV).
+
+**Núcleo reutilizável:** `skewness_de_sinal(sinal, fs, fs_banda=(4,8), order=4) -> (skew, n)` opera em array já em memória; `theta_skewness_for_window(file_path, ...)` é o wrapper que lê o arquivo e chama isso (mantido porque `audita_harmonico.py` importa esse nome). `classifica_skew(skew, n, limiar=0.5)` centraliza o veredito do caso "janela completa" (o caso "ilha reancorada" tem um sufixo de texto ligeiramente diferente e foi deixado como estava, de propósito, para não mudar comportamento).
+
+**CLI (congelada — `processa_sessao.py` chama este script em produção via subprocess):**
+```bash
+python audita_skewness.py --csv "<sessao>/RESULTADOS/vencedores.csv" \
+    --pasta_ns2 "<sessao>/<BASAL>" --saida "<sessao>/RESULTADOS/skewness.csv" --limiar 0.5
+```
+
+**Saída:** `skewness.csv` com `rotulo, arquivo, canal, janela_ini_s, janela_fim_s, janela, janela_tipo, n, skewness, veredito_skew, motivo`.
+
+---
+
+## 16. `audita_janela.py` — Orquestrador forense por janela *(novo 2026-09)*
+
+**O que faz:** para UM canal/janela, roda numa só passada as 4 auditorias que compartilham o mesmo formato de entrada — skewness, transientes/despike, pegada espacial (footprint) e razão harmônica — lendo o `.ns2` **uma única vez** e derivando em memória as 3 variantes de sinal que cada uma precisa (bruto sem notch p/ skewness, com notch 60Hz p/ transientes/footprint, janela de contexto de 45s p/ FOOOF). Hoje, rodar os 4 scripts individualmente relê o mesmo arquivo pelo menos 3-4 vezes.
+
+**Papel diferente de `processa_sessao.py`:** aquele é o orquestrador **em lote** (por canal, sobre um CSV de candidatos, alimenta `agrega_resultados.py`). `audita_janela.py` é forense **por janela única**: "tenho um caso suspeito, me diga tudo sobre ele numa chamada só". Os dois coexistem sem sobreposição.
+
+**Fica de fora (pré-requisitos estruturais incompatíveis com "canal + janela genérica"):**
+- `audita_held_out.py` — exige janela reancorada (ilha vs. resto).
+- `audita_segmentos.py` — exige sub-segmentos explícitos definidos à mão; recomputa o comodulograma completo (~275 células × 200 surrogates POR segmento), ordens de magnitude mais caro.
+- `audita_harmonico_hfo.py` — CSV de triagem HFO e fonte de dados (`.mat`) distintos; já integrado à rota separada de `processa_sessao.py`.
+
+**Custo:** skewness ~0, harmônico ~0 em MI (1 fit FOOOF), transientes 8× `mi_z_par`, footprint 32× (o mais caro — use `--pula footprint` para descartar).
+
+**Veredito consolidado:** regra conservadora e transparente — começa em `LIMPO`, acumula um motivo por sinal de alerta, reusando os limiares que cada auditoria individual já usa (`--limiar` do skewness, `z≥3` do footprint, `--limiar_plv`/`--tol_rel` do harmônico). Dois heurísticos de triagem novos (não critério científico, documentados como tal): razão `z_despike_k6/z_baseline < 0.5` e `≤1` de 5 sub-janelas com `z≥3`.
+
+**CLI:**
+```bash
+# janela única
+python audita_janela.py --pasta_ns2 "<sessao>/<BASAL>" \
+    --arquivo <arquivo>.ns2 --canal chan22 --inicio 20 --fim 30 --fp 5 --fa 35
+
+# modo lote, reaproveitando vencedores.csv
+python audita_janela.py --pasta_ns2 "<sessao>/<BASAL>" --csv "<sessao>/RESULTADOS/vencedores.csv"
+```
+
+**Saída:** `auditoria_janela.csv` (1 linha por caso, colunas prefixadas `skew_*`/`trans_*`/`ctx_*`/`foot_*`/`harm_*` + `veredito_consolidado`/`motivos`) e `auditoria_janela_footprint.csv` (long format, `caso,canal,z`).
+
+**Validado:** rodando sobre o caso de referência `chan22@20-30s, par 5×35 Hz` (sessão 08/07), todos os valores batem exatamente com os 4 scripts individuais rodados separadamente sobre o mesmo caso.
+
+---
+
+## 17. `pac_core/` e a cadeia do Dataset Mestre *(refatoração 2026-09)*
+
+### 17.1 Núcleo matemático compartilhado
+Antes da refatoração, `filtra_sinal`, `aplica_notch`, `_mi_de_bin_idx` e a lógica de surrogates existiam copiados em 4-6 scripts cada. Agora moram em `SCRIPT/pac_core/`:
+- **`io.py`**: `le_ns2`, `le_bin_legado`, `le_mat`, dispatcher `carrega_dados()` por extensão, `fatia_janela`, `concatena_sessao`, `salva_csv` (utf-8-sig opcional, não aplicado retroativamente aos 26 `to_csv()` existentes — só disponível para quem migrar deliberadamente).
+- **`filtering.py`**: `filtra_sinal` (Butterworth `order=3` canônico) e `aplica_notch` (multi-harmônico; aceita `linha_hz=` como alias legado de `freqs_notch=`).
+- **`pac_metrics.py`**: `_mi_de_bin_idx`, `fase_para_bin_idx`, `gera_deslocamentos` (primitiva própria — o comodulograma sorteia UM conjunto de deslocamentos compartilhado por ~400 células, não um por célula), `mi_surrogates_de_deslocamentos`, `z_score_mi`/`z_score_mi_mapa`, `calcula_mi_com_surrogates`. `rng` é sempre parâmetro explícito — o núcleo nunca semeia sozinho por padrão, cada script mantém sua própria política (reaproveitar o gerador entre janelas, recriar a cada iteração, seed fixa 42, etc.).
+
+**Deliberadamente fora do núcleo** (documentado nos próprios módulos): as 6 variantes de filtro com `order`/clamp diferentes (`deteccao_ripple.py`, `audita_held_out.py`, `utils_harmonico.py::narrow_band`, etc.), `audita_held_out.py` (métrica de MI diferente — informação mútua via histograma 2D), `mvl_z_par`/`mvl_bruto_e_rayleigh` de `robustez_parametros.py` (MVL de Canolty, não KL-MI).
+
+**Shims de compatibilidade** (mesma CLI/nome antigo, delegam para `pac_core`): `ns2_utils.py`, `atualiza_fooof_mestre.py`, `aplica_portao_banda_larga_mestre.py`. (`adapta_lfp_mat.py`, `testa_metodos_matlab.py` e `compara_preprocesso_linha.py` foram removidos em 2026-09 por não terem mais uso.)
+
+**Teste de paridade:** `tests/test_pac_metrics_parity.py` — duas camadas (cópias congeladas das implementações legadas + valores numéricos literais capturados antes de qualquer migração). Toda mudança em `pac_core/pac_metrics.py` deve manter esse teste verde.
+
+### 17.2 `agrega_resultados.py` → `enriquece_dataset_mestre.py`
+Cadeia de consolidação do dataset mestre (antes disso não estava documentada em lugar nenhum):
+```bash
+# 1. Constrói o dataset mestre bruto: merge de refinados.csv + skewness/comodulograma/harmônico(_hfo)
+#    por canal (renomeia veredito→veredito_refino, adiciona sessao/condicao/canal)
+python pipeline/agrega_resultados.py --resultados "<sessao>/RESULTADOS" --saida dataset_mestre.csv
+
+# 2. Enriquece: FOOOF v2 (aperiodic_mode='knee', ajuste particionado 2-45Hz teta / 35-250Hz gama)
+#    + portão de banda larga (rebaixa "Candidato robusto" com suspeito_banda_larga=True)
+python pipeline/enriquece_dataset_mestre.py --entrada dataset_mestre.csv --saida dataset_mestre_v2.csv
+```
+As duas etapas do passo 2 (`--etapas fooof portao`, ambas por padrão) são independentes — `portao` só usa colunas que já vêm do passo 1, nenhuma delas é criada pelo `fooof`. Não-destrutivo por padrão; `--in_place` sobrescreve a entrada (comportamento do antigo `aplica_portao_banda_larga_mestre.py`). Guarda contra reenriquecer: se as 14 colunas FOOOF v2 já existirem, aborta com erro claro a menos que `--forca` seja passado (evita colunas `_x`/`_y` duplicadas silenciosas do `pandas.merge`).
 
 ---
 

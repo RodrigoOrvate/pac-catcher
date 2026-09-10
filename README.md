@@ -32,22 +32,31 @@ Abaixo estão as etapas principais do pipeline. Todo o código reside aqui. Voc�
 
 O código é unificado e vive na pasta raiz (`SCRIPT/`). Abaixo, o mapa de ferramentas:
 
+- **`pac_core/`**: Núcleo matemático compartilhado (extraído em 2026-09, ver `scripts_explicados.md` para o histórico da refatoração). Nenhum outro módulo deve reimplementar o que está aqui.
+  - `io.py`: Leitura de `.ns2` (Blackrock), `.bin` legado e `.mat` (MATLAB/tetrodo), dispatcher único por extensão via `carrega_dados()`.
+  - `filtering.py`: Filtro Butterworth passa-faixa (`filtra_sinal`) e notch multi-harmônico (`aplica_notch`) canônicos.
+  - `pac_metrics.py`: KL-MI de Tort + surrogates por deslocamento circular (`calcula_mi_com_surrogates`, `z_score_mi`, `gera_deslocamentos`).
+  - `ns2_utils.py`, `atualiza_fooof_mestre.py` e `aplica_portao_banda_larga_mestre.py` (em `pipeline/`) são **shims finos** que re-exportam daqui/de `enriquece_dataset_mestre.py`, preservando CLIs antigas — novo código deve importar de `pac_core` diretamente.
+
 - **`pipeline/`**: O núcleo duro do PAC Catcher.
   - `triagem_coocorrencia.py` (Passo 0.5): Resolução amostral para HFO/Ripple (hierarquia de detecção). Resolve o Paradoxo HFO.
-  - `triagem_pac.py`: Varredura inicial de todo o registro em busca de Teta-Gama, Teta-HG e Teta-HFO.
+  - `triagem_pac.py` / `triagem_pac_mat.py`: Varredura inicial de todo o registro (`.ns2` multi-canal ou `.mat` de tetrodo/terceiros) em busca de Teta-Gama, Teta-HG e Teta-HFO.
   - `refina_candidatos.py`: Aplica p-valor paramétrico (Gama), FDR de Benjamini-Hochberg e filtros de kurtose.
   - `comodulogram.py`: Gera mapas de calor 2D (fase x amplitude) com filtros notch aplicados.
   - `robustez_parametros.py` & `figura_apresentacao.py`: Testa estabilidade (varredura de n_bins, filtros) e plota STFT e gráficos polares para apresentação.
   - `exploracao_minuto.py` / `comodulogram_interativo.py`: Scripts para navegação visual e inspeção prévia dos dados antes da triagem cega.
+  - `agrega_resultados.py` → `enriquece_dataset_mestre.py`: constrói o dataset mestre (merge de `refinados.csv` + auditorias por canal) e depois o enriquece (FOOOF v2 + portão de banda larga) numa rotina só — ver Passo 3.6.
   - Análise Comportamental: `gerar_template_comportamento.py` (cria template de janelas exclusivas), `anotador_comportamento.py` (GUI para sincronização com vídeo por offset, loop 10s e anotação ágil), `junta_comportamento.py` (mescla anotações ao dataset mestre).
-  - Utilitários: `ns2_utils.py` (lê os dados brutos .ns2), `extrair_picos.py`, `adapta_lfp_mat.py`, `gerar_relatorio_pdf.py`.
+  - Utilitários: `extrair_picos.py`, `gerar_relatorio_pdf.py`, `gera_plot_fooof.py`.
 
 - **`pipeline/auditorias/`**: Filtros e testes secundários rigorosos para falsos positivos.
+  - `audita_janela.py`: **orquestrador forense** — roda skewness + transientes + footprint + harmônico numa só passada para um canal/janela (lê o `.ns2` uma única vez). Recomendado para investigar um caso específico; os 4 scripts abaixo continuam existindo individualmente (e são os que `processa_sessao.py` chama em lote).
   - `audita_harmonico.py` / `audita_harmonico_hfo.py`: Usa o FOOOF para separar 1/f e confirmar se os picos de amplitude não são harmônicos matemáticos da fase.
   - `audita_skewness.py`: Checa se a assimetria (dente-de-serra) da onda lenta forjou o acoplamento.
   - `audita_footprint.py`: Checa se a distribuição do acoplamento pelos 32 canais é focal (verdadeira) ou difusa (condução de volume/artefato).
   - `diagnostico_janela.py`: Cruza o ritmo Teta com faixas respiratórias/olfatórias (0.5-3Hz / 4-8Hz) para descartar artefatos respiratórios.
   - `audita_transientes.py`, `audita_segmentos.py`: Garantem que o acoplamento não é dirigido por *spikes* (espigões) de ruído mecânico.
+  - `audita_held_out.py`: Testa double-dipping em janelas reancoradas (ilha vs. resto) — pré-requisito estrutural incompatível com `audita_janela.py`, fica separado.
 
 - **`preditor/`**: Ferramentas experimentais de Machine Learning (`treinar_preditor.py`, `prever_pac_tempo_real.py`, `analisar_pre_evento.py`) para prever ocorrência de PAC em tempo real.
 - **`tests/`**: Suite de testes automatizados (`test_synthetic_harmonico.py`, etc.) que simulam LFPs sintéticos ruidosos para garantir que a matemática do pipeline não falha sob *stress*.
@@ -138,12 +147,35 @@ Para correlacionar os episódios de acoplamento detectados com o comportamento r
 
 ---
 
+### Passo 3.6: Construção e Enriquecimento do Dataset Mestre
+Depois que `refina_candidatos.py` gerou `refinados.csv` por canal (e as auditorias do Passo 4 já rodaram, se for o caso), duas etapas consolidam tudo numa tabela única:
+
+```bash
+# 1. Agrega refinados.csv + skewness/comodulograma/harmônico(_hfo) de cada canal
+python pipeline/agrega_resultados.py --resultados "<sessao>/RESULTADOS" --saida "<sessao>/dataset_mestre.csv"
+
+# 2. Enriquece: FOOOF v2 (aperiodic_mode='knee', ajuste particionado) + portão de banda larga
+python pipeline/enriquece_dataset_mestre.py --entrada "<sessao>/dataset_mestre.csv" \
+    --saida "<sessao>/dataset_mestre_v2.csv"
+```
+Por padrão `enriquece_dataset_mestre.py` roda as duas etapas (`--etapas fooof portao`) e **não sobrescreve a entrada** (`--in_place` reproduz o comportamento antigo, se precisar). Os comandos antigos (`atualiza_fooof_mestre.py`, `aplica_portao_banda_larga_mestre.py`) continuam funcionando idênticos, como atalhos finos para este script.
+
+---
+
 ### Passo 4: Auditorias Específicas
-O pipeline conta com auditorias separadas para blindar os resultados contra falhas físicas e matemáticas do sinal. Para aplicar, você executa scripts da pasta `auditorias`:
+O pipeline conta com auditorias separadas para blindar os resultados contra falhas físicas e matemáticas do sinal. Para investigar um canal/janela específico de uma vez, use o orquestrador:
+```bash
+python pipeline/auditorias/audita_janela.py --pasta_ns2 "<sessao>/<BASAL>" \
+    --arquivo <arquivo>.ns2 --canal chan22 --inicio 20 --fim 30 --fp 5 --fa 35
+```
+Ele roda as 4 auditorias abaixo numa só passada (lendo o `.ns2` uma única vez) e devolve um veredito consolidado. Cada uma também pode ser rodada isoladamente:
 - **`audita_skewness.py`**: Avalia a assimetria (formato dente de serra) do Teta para evitar geração de harmônicos de fase.
 - **`audita_harmonico.py` / `audita_harmonico_hfo.py`**: Usa o algoritmo **FOOOF** para verificar se o Gama é harmônico do Teta ou se o HFO é harmônico do Gama.
 - **`audita_footprint.py`**: Garante que o gerador da oscilação é focal e descarta propagação por condução de volume (co-detecção massiva nos 32 canais).
+- **`audita_transientes.py`**: Testa se o acoplamento é dirigido por espigões (*spikes*) de ruído mecânico via despike + sub-janelas.
 - **`diagnostico_janela.py`**: Confirma se o que estamos chamando de Teta não é na verdade respiração/sniffing do roedor (ritmo olfatório).
+
+`audita_held_out.py`, `audita_segmentos.py` e `audita_harmonico_hfo.py` ficam de fora do orquestrador (pré-requisitos estruturais próprios: janela reancorada, sub-segmentos manuais, e fonte de dados/CSV distinta, respectivamente) — continuam scripts separados.
 
 ---
 

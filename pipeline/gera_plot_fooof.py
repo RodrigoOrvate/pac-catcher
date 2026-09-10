@@ -1,3 +1,15 @@
+"""
+gera_plot_fooof.py
+==========================================
+Gera a figura de 3 painéis comparando o espectro bruto (sem FOOOF) contra
+o ajuste FOOOF v2 (knee + fit particionado teta/gama) sobre um trecho de
+LFP real. Uso pontual para apresentação/lab meeting -- não é parte do
+pipeline automático (`processa_sessao.py` não chama este script).
+
+Os parâmetros do caso (arquivo, canal, janela) estão hardcoded abaixo de
+propósito -- é um script de geração de UMA figura específica, não uma
+ferramenta de sessão genérica via CLI.
+"""
 import os
 import sys
 import numpy as np
@@ -5,7 +17,7 @@ import matplotlib.pyplot as plt
 import scipy.signal as signal
 
 # Configurar caminhos
-DIR_PIPELINE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pipeline")
+DIR_PIPELINE = os.path.dirname(os.path.abspath(__file__))
 DIR_AUDITORIAS = os.path.join(DIR_PIPELINE, "auditorias")
 sys.path.insert(0, DIR_PIPELINE)
 sys.path.insert(0, DIR_AUDITORIAS)

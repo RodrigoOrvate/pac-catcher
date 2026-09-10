@@ -4,9 +4,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.signal import butter, filtfilt
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from deteccao_ripple import detecta_eventos_ripple
-from triagem_coocorrencia import carrega_sinal
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from pipeline.etapa1_triagem.deteccao_ripple import detecta_eventos_ripple
+from pipeline.etapa1_triagem.triagem_coocorrencia import carrega_sinal
 
 def butter_bandpass_filter(data, lowcut, highcut, fs, order=5):
     nyq = 0.5 * fs

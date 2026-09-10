@@ -28,14 +28,13 @@ from matplotlib.patches import Rectangle
 from matplotlib.colors import Normalize
 
 # --- utilitários do pipeline --------------------------------------------------
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from ns2_utils import carrega_dados, fatia_janela
-from triagem_pac import BAND_PAIRS
-from comodulogram import (
-    filtra_sinal,
-    aplica_notch,
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from pac_core.io import carrega_dados, fatia_janela
+from pac_core.filtering import filtra_sinal, aplica_notch
+from pac_core.pac_metrics import _mi_de_bin_idx
+from pipeline.etapa1_triagem.triagem_pac import BAND_PAIRS
+from pipeline.etapa3_comodulograma.comodulogram import (
     calcula_comodulograma_z,
-    _mi_de_bin_idx,
     z_pico_par,
     bh_fdr_mapa,
     p_valores_por_celula,

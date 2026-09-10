@@ -18,12 +18,11 @@ import pandas as pd
 import scipy.io
 from scipy.signal import welch
 
-# Adiciona diretório pai e atual ao path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Adiciona a raiz do SCRIPT ao path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from deteccao_ripple import detecta_eventos_ripple, resume_eventos_por_janela
-from triagem_pac import teta_ok_por_janela
+from pipeline.etapa1_triagem.deteccao_ripple import detecta_eventos_ripple, resume_eventos_por_janela
+from pipeline.etapa1_triagem.triagem_pac import teta_ok_por_janela
 
 def carrega_sinal(origem, canal):
     if origem.endswith('.mat'):
@@ -36,7 +35,7 @@ def carrega_sinal(origem, canal):
         raise KeyError(f"Nenhuma variável de sinal encontrada em {origem}")
     elif origem.endswith('.ns2'):
         try:
-            from ns2_utils import carrega_dados
+            from pac_core.io import carrega_dados
             dados, fs, canal_ids = carrega_dados(origem)
             idx = canal_ids.index(str(canal)) if str(canal) in canal_ids else int(canal)
             nome_canal = canal_ids[idx]

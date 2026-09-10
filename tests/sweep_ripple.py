@@ -10,7 +10,7 @@ origens = {
     "imobilidade_002": r"C:\acoplamento_theta-gamma\MTESC04_NOCI\MTESC04 -- 1 - infusao - 08-07-2024\Basal antes da infusao\20240708-123605-002.ns2",
     "imobilidade_003": r"C:\acoplamento_theta-gamma\MTESC04_NOCI\MTESC04 -- 1 - infusao - 08-07-2024\Basal antes da infusao\20240708-123605-003.ns2"
 }
-script_path = r"C:\acoplamento_theta-gamma\SCRIPT\pipeline\triagem_coocorrencia.py"
+script_path = r"C:\acoplamento_theta-gamma\SCRIPT\pipeline\etapa1_triagem\triagem_coocorrencia.py"
 
 resultados = []
 

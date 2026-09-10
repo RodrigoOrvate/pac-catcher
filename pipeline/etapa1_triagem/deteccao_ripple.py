@@ -14,7 +14,7 @@ e aplicando limites de duração mínima e coocorrência (sharp-wave).
 
 import numpy as np
 from scipy.signal import butter, filtfilt, hilbert
-from preprocessa_referencia_diferencial import aplica_referencia_diferencial
+from pipeline.etapa1_triagem.preprocessa_referencia_diferencial import aplica_referencia_diferencial
 
 def _filtra_banda(sinal, fs, lowcut, highcut, order=4):
     nyq = 0.5 * fs

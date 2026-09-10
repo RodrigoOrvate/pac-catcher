@@ -1,13 +1,13 @@
 """PASSO 0 - exploracao_minuto.py"""
 import os, sys, argparse
-sys.path.insert(0, r"C:\acoplamento_theta-gamma\SCRIPT\pipeline")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 import numpy as np
 from scipy.signal import welch, hilbert, butter, filtfilt
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from ns2_utils import carrega_dados, fatia_janela
-from triagem_pac import mi_com_surrogates  # z-score com 200 surrogates (correto)
+from pac_core.io import carrega_dados, fatia_janela
+from pipeline.etapa1_triagem.triagem_pac import mi_com_surrogates  # z-score com 200 surrogates (correto)
 
 def filtra_sinal(sinal, lowcut, highcut, fs, order=3):
     nyq = 0.5 * fs

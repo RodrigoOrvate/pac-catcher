@@ -49,8 +49,7 @@ import pandas as pd
 import scipy.signal as signal
 from scipy.signal import welch
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from pac_core.filtering import filtra_sinal
 from pac_core.pac_metrics import (
     _mi_de_bin_idx, calcula_mi as calcula_mi_nucleo,
@@ -346,7 +345,7 @@ def varre_canal(sinal, fs, window_s=10.0, step_s=5.0, n_surr=200,
 # LEITURA DE .ns2 VIA NEO (Blackrock)
 # ==========================================
 
-from ns2_utils import le_ns2  # leitura compartilhada
+from pac_core.io import le_ns2  # leitura compartilhada
 
 
 def varre_arquivo(caminho, canais=None, window_s=10.0, step_s=5.0,

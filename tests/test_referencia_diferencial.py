@@ -6,10 +6,9 @@ import matplotlib.pyplot as plt
 from scipy.signal import butter, filtfilt
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pipeline"))
-from pipeline.ns2_utils import carrega_dados
-from pipeline.preprocessa_referencia_diferencial import seleciona_pool_referencia, constroi_referencia
-from pipeline.deteccao_ripple import detecta_eventos_ripple
+from pac_core.io import carrega_dados
+from pipeline.etapa1_triagem.preprocessa_referencia_diferencial import seleciona_pool_referencia, constroi_referencia
+from pipeline.etapa1_triagem.deteccao_ripple import detecta_eventos_ripple
 
 def butter_bandpass_filter(data, lowcut, highcut, fs, order=5):
     nyq = 0.5 * fs

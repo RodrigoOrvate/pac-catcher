@@ -51,11 +51,10 @@ import sys
 import numpy as np
 import pandas as pd
 
-# Adiciona o pipeline e a raiz do SCRIPT ao path (triagem_pac + pac_core)
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Adiciona a raiz do SCRIPT ao path (pipeline.etapa1_triagem + pac_core)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from triagem_pac import BAND_PAIRS, varre_canal
+from pipeline.etapa1_triagem.triagem_pac import BAND_PAIRS, varre_canal
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")

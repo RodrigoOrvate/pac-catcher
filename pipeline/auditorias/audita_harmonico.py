@@ -75,6 +75,63 @@ from utils_harmonico import (
 )
 
 
+def avalia_harmonico(sinal_ctx, sinal_cand, fs, amp_pico, skew=None,
+                     tol_rel=0.1, limiar_plv=0.8, limiar_skew=0.5,
+                     modo_preprocesso="hibrido", f_linha=60.0):
+    """
+    Núcleo: extrai o teta refinado via FOOOF de `sinal_ctx` (janela de
+    contexto longa) e testa se (cf_teta, amp_pico) é consistente com um
+    harmônico inteiro, em frequência (razão) e fase (PLV, calculado sobre
+    `sinal_cand` -- a janela do candidato). `skew` é opcional (se None,
+    o teste de assimetria fica sempre falso).
+
+    Devolve dict: {"cf_teta_fooof", "erro_ajuste_fooof", "plv_harmonico",
+    "ordem", "veredito_harmonico"}.
+    """
+    res_fooof = extrai_cf_teta_fooof(sinal_ctx, fs,
+                                     modo_preprocesso=modo_preprocesso,
+                                     f_linha=f_linha)
+
+    if not res_fooof["qualidade_ok"]:
+        veredito = "SEM_REFERENCIA_TETA"
+        plv_val = np.nan
+        ordem = None
+    else:
+        n_max = calcula_n_max(res_fooof["cf_teta"], amp_pico, tol_rel * res_fooof["cf_teta"])
+        suspeito, ordem, desvio, ambiguo, candidatos = testa_razao_harmonica(
+            res_fooof["cf_teta"], amp_pico, tol_rel, n_max=n_max)
+
+        plv_val = np.nan
+        if suspeito and ordem is not None:
+            plv_val = compute_plv_harmonico(sinal_cand, fs,
+                                           res_fooof["cf_teta"], amp_pico,
+                                           ordem)
+
+        skew_alto = skew is not None and abs(skew) > limiar_skew
+        plv_alto = plv_val is not None and plv_val > limiar_plv
+
+        if ambiguo:
+            veredito = f"AMBIGUO_MULTIPLOS_N ({len(candidatos)} candidatos: {[c[0] for c in candidatos]})"
+        elif suspeito and skew_alto and plv_alto:
+            veredito = f"SUSPEITO_HARMONICO_FORTE ({ordem}x, PLV={plv_val:.2f})"
+        elif suspeito and plv_alto:
+            veredito = f"REVISAR_FASE_TRAVADA ({ordem}x, PLV={plv_val:.2f})"
+        elif suspeito:
+            veredito = f"REVISAR_RAZAO_INTEIRA ({ordem}x)"
+        elif skew_alto:
+            veredito = "REVISAR_TETA_ASSIMETRICO"
+        else:
+            veredito = "CLEAN"
+
+    return {
+        "cf_teta_fooof": res_fooof["cf_teta"],
+        "erro_ajuste_fooof": res_fooof["erro_ajuste"],
+        "plv_harmonico": plv_val,
+        "ordem": ordem,
+        "veredito_harmonico": veredito,
+    }
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                   formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -129,47 +186,19 @@ def main():
             print(f"{canal:<10} | {ini:.0f}-{fim:.0f}s | ERROR: {e}")
             continue
 
-        res_fooof = extrai_cf_teta_fooof(sinal_ctx, fs,
-                                         modo_preprocesso=args.modo_preprocesso,
-                                         f_linha=args.f_linha)
-
         try:
             skew, _ = theta_skewness_for_window(path, canal, ini, fim)
         except Exception:
             skew = None
 
-        if not res_fooof["qualidade_ok"]:
-            veredito = "SEM_REFERENCIA_TETA"
-            plv_val = np.nan
-            ordem = None
-        else:
-            # 1. Teste de Razao de Frequencia (Tolerancia Relativa)
-            n_max = calcula_n_max(res_fooof["cf_teta"], amp_pico, args.tol_rel * res_fooof["cf_teta"])
-            suspeito, ordem, desvio, ambiguo, candidatos = testa_razao_harmonica(
-                res_fooof["cf_teta"], amp_pico, args.tol_rel, n_max=n_max)
-
-            # 2. Teste de Rigidez de Fase (PLV) - roda apenas se houver suspeita de razao
-            plv_val = np.nan
-            if suspeito and ordem is not None:
-                plv_val = compute_plv_harmonico(sinal_cand, fs,
-                                               res_fooof["cf_teta"], amp_pico,
-                                               ordem)
-
-            skew_alto = skew is not None and abs(skew) > args.limiar_skew
-            plv_alto = plv_val is not None and plv_val > args.limiar_plv
-
-            if ambiguo:
-                veredito = f"AMBIGUO_MULTIPLOS_N ({len(candidatos)} candidatos: {[c[0] for c in candidatos]})"
-            elif suspeito and skew_alto and plv_alto:
-                veredito = f"SUSPEITO_HARMONICO_FORTE ({ordem}x, PLV={plv_val:.2f})"
-            elif suspeito and plv_alto:
-                veredito = f"REVISAR_FASE_TRAVADA ({ordem}x, PLV={plv_val:.2f})"
-            elif suspeito:
-                veredito = f"REVISAR_RAZAO_INTEIRA ({ordem}x)"
-            elif skew_alto:
-                veredito = "REVISAR_TETA_ASSIMETRICO"
-            else:
-                veredito = "CLEAN"
+        res_h = avalia_harmonico(sinal_ctx, sinal_cand, fs, amp_pico, skew=skew,
+                                 tol_rel=args.tol_rel, limiar_plv=args.limiar_plv,
+                                 limiar_skew=args.limiar_skew,
+                                 modo_preprocesso=args.modo_preprocesso,
+                                 f_linha=args.f_linha)
+        res_fooof = {"cf_teta": res_h["cf_teta_fooof"], "erro_ajuste": res_h["erro_ajuste_fooof"]}
+        plv_val = res_h["plv_harmonico"]
+        veredito = res_h["veredito_harmonico"]
 
         cf_str = f"{res_fooof['cf_teta']:.2f}" if res_fooof['cf_teta'] is not None else "n/a"
         plv_str = f"{plv_val:.2f}" if not np.isnan(plv_val) else "n/a"

@@ -35,6 +35,7 @@ Requer: neo, numpy, scipy, matplotlib
 
 import argparse
 import os
+import sys
 
 import numpy as np
 import pandas as pd
@@ -42,10 +43,13 @@ import scipy.signal as signal
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 
-from comodulogram import (filtra_sinal, aplica_notch, calcula_comodulograma_z,
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from comodulogram import (calcula_comodulograma_z,
                           _mi_de_bin_idx, FASES_DEFAULT, AMPS_DEFAULT)
 from robustez_parametros import mi_z_par
 from ns2_utils import le_ns2, fatia_janela
+from pac_core.filtering import filtra_sinal, aplica_notch
 
 N_SURR = 200
 N_BINS = 18

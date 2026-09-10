@@ -46,8 +46,10 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ns2_utils import le_ns2, carrega_dados, fatia_janela
 from triagem_pac import BAND_PAIRS
+from pac_core.filtering import filtra_sinal, aplica_notch
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")
@@ -67,15 +69,8 @@ AMPS_DEFAULT  = np.concatenate([               # grade mais densa onde importa
 
 # ==========================================
 # NÚCLEO DE CÁLCULO (mesmo MI dos outros scripts)
+# filtra_sinal / aplica_notch agora vêm de pac_core.filtering (import no topo)
 # ==========================================
-
-def filtra_sinal(sinal_in, lowcut, highcut, fs, order=3):
-    nyq = 0.5 * fs
-    low = max(lowcut / nyq, 1e-6)
-    high = min(highcut / nyq, 0.999)
-    b, a = signal.butter(order, [low, high], btype="bandpass")
-    return signal.filtfilt(b, a, sinal_in)
-
 
 def _mi_de_bin_idx(bin_idx, envelope, n_bins):
     soma_bins = np.bincount(bin_idx, weights=envelope, minlength=n_bins)
@@ -87,31 +82,6 @@ def _mi_de_bin_idx(bin_idx, envelope, n_bins):
     P = media_bins / soma
     H = -np.sum(P * np.log(P + 1e-10))
     return (np.log(n_bins) - H) / np.log(n_bins)
-
-
-def aplica_notch(sinal_in, fs, freqs_notch, q_factor=30.0):
-    """
-    Rejeita a frequência da rede elétrica e seus harmônicos (iirnotch).
-    Aceita uma lista de frequências (ex: [60, 120, 180, 240]).
-    Necessário porque picos de linha dentro da banda de amplitude inflam
-    o MI simulando acoplamento onde não há.
-    """
-    if not freqs_notch:
-        return sinal_in
-        
-    nyq = 0.5 * fs
-    out = sinal_in
-    
-    # Suporta tanto um número (comportamento antigo, mas aqui usamos lista) quanto lista
-    if not isinstance(freqs_notch, (list, tuple, np.ndarray)):
-        freqs_notch = [freqs_notch]
-        
-    for f in freqs_notch:
-        if f >= nyq * 0.98:
-            continue
-        b, a = signal.iirnotch(f / nyq, q_factor)
-        out = signal.filtfilt(b, a, out)
-    return out
 
 
 def calcula_comodulograma_z(lfp_ativo, fs, fases_freq, amps_freq,

@@ -30,10 +30,13 @@ from scipy import signal
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PIPELINE_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))
+SCRIPT_ROOT = os.path.abspath(os.path.join(PIPELINE_DIR, ".."))
 sys.path.insert(0, PIPELINE_DIR)
+sys.path.insert(0, SCRIPT_ROOT)
 
 # Importa as funções REAIS do pipeline
-from comodulogram import filtra_sinal, _mi_de_bin_idx
+from comodulogram import _mi_de_bin_idx
+from pac_core.filtering import filtra_sinal
 
 
 def mi_pareado(sinal, fs, f_theta, f_gamma, n_bins=18, largura_gamma=4.0):

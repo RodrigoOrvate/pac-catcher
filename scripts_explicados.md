@@ -444,135 +444,136 @@ python audita_segmentos.py ......pasta "<sessao>/<BASAL>" \
     ......segmentos "ini1...fim1,ini2...fim2,..." ......fp F ......fa A
 ```
 
-**Exemplo:** `......segmentos "20...26,26...30,28...30,20...30"` divide a janela
-em sub...blocos de 2–4 s para ver onde o z aparece (ou não).
+**Exemplo:** `......segmentos "20...26,26...30,28...30,20...30"` divide a janela s para ver onde o z aparece (ou não).
 
-.........
+---
 
 ## 9. `audita_footprint.py` — Pegada espacial do acoplamento
 
-**O que faz:** mede o z na célula do pico em **todos os 32 canais**
-da mesma janela. O discriminador: fonte cortical local produz
-*gradiente suave* (poucos canais vizinhos significantes); artefato
-difuso (respiração, movimento, volume conduzido, cabo) aparece
-simultaneamente em muitos canais distantes.
+**O que faz:** mede o z na célula do pico em **todos os 32 canais** da mesma janela. O discriminador: fonte cortical local produz *gradiente suave* (poucos canais vizinhos significantes); artefato difuso (respiração, movimento, volume conduzido, cabo) aparece simultaneamente em muitos canais distantes.
 
-**Leitura:** o caso "rearing" (chan18/20/30/32, 4 canais) é referência
-do que é pegada *local*. O grooming (chan22 + cluster 22/24/26/28)
-é *focal*. Se 26 dos 32 canais estão em z≥3, é incompatível com
-cabo/EMG difuso.
+**Leitura:** o caso "rearing" (chan18/20/30/32, 4 canais) é referência do que é pegada *local*. O grooming (chan22 + cluster 22/24/26/28) é *focal*. Se 26 dos 32 canais estão em z ≥ 3, é incompatível com cabo/EMG difuso.
 
-**Uso:** `python audita_footprint.py` (default: sessão 08/07, 3
-janelas pré...configuradas). Para outra sessão, edite a lista `JANELAS`
-no topo do script — casos específicos *nunca* entram no código via
-CLI neste script (use `......casos` no `audita_transientes.py`).
+**Uso:** `python audita_footprint.py` (default: sessão 08/07, 3 janelas pré-configuradas). Para outra sessão, edite a lista `JANELAS` no topo do script ou passe alvos via linha de comando.
 
-.........
+---
 
 ## 10. `audita_grooming_robustez.py` — Robustez do núcleo de grooming
 
-**O que faz:** verifica se o *núcleo* de grooming do vencedor 2
-(003 @ 20–27 s, par 5×35 Hz, re...ancorado no vídeo) sobrevive ao
-mesmo batizado dos outros vencedores: sweep de n_bins + MVL no
-chan22 + consistência nos vizinhos chan24/26/28.
+**O que faz:** verifica se o *núcleo* de grooming do vencedor 2 (003 @ 20–27 s, par 5×35 Hz, re-ancorado no vídeo) sobrevive ao mesmo batizado dos outros vencedores: sweep de n_bins + MVL no chan22 + consistência nos vizinhos chan24/26/28.
 
-**Contexto:** o z=9,4 da janela original 20–30 s era inflação por
-escolha de janela (mistura de estados + nula estreita). O núcleo
-robusto é z≈4 durante o grooming puro.
+**Contexto:** o z=9,4 da janela original 20–30 s era inflação por escolha de janela (mistura de estados + nula estreita). O núcleo robusto é z ≈ 4 durante o grooming puro.
 
 **Uso:** `python audita_grooming_robustez.py` (sessão 08/07 default).
 
-.........
+---
 
+## 11. `diagnostico_janela.py` — Diagnóstico visual e espectral (5 painéis)
+
+**O que faz:** para qualquer janela de interesse, plota 5 painéis integrados:
+1. LFP bruto com filtros de banda lenta e rápida
+2. Densidade espectral de potência (PSD / Welch)
+3. Espectrograma tempo-frequência (STFT)
+4. Comodulograma de Fase-Amplitude com Z-score
+5. Distribuição de fase polar (histograma circular de Tort)
+
+---
 
 ## 12. `audita_harmonico.py` — Teste de razão harmônica Θ→Γ (auditoria)
 
-**O que faz:** usa FOOOF (Kühn et al. 2026) para estimar `cf_teta` numa janela
-de contexto longa (45 s) e testa se `amp_pico ≈ n × cf_teta` em frequência
-(razão inteira, tolerância 10±) e em fase (PLV entre `n×phi_theta` e
-`phi_gamma`).
+**O que faz:** usa FOOOF (Kühn et al. 2026) para estimar `cf_teta` numa janela de contexto longa (45 s) e testa se `amp_pico ≈ n × cf_teta` em frequência (razão inteira, tolerância 10%) e em fase (PLV entre `n × phi_theta` e `phi_gamma`).
 
 **Três dimensões independentes:**
-1. **Frequência**: razão inteira `amp/fase ≈ n` (tolerância 10± de `cf_teta`)
+1. **Frequência**: razão inteira `amp/fase ≈ n` (tolerância 10% de `cf_teta`)
 2. **Forma de onda**: skewness do teta (reusado de `audita_skewness.py`)
-3. **Fase**: PLV entre `n×phi_theta` e `phi_gamma` — discriminador mais forte
+3. **Fase**: PLV entre `n × phi_theta` e `phi_gamma` — discriminador mais forte
 
-**Veredito:** CLEAN / REVISAR_RAZAO_INTEIRA / REVISAR_FASE_TRAVADA / SUSPEITO_HARMONICO_FORTE / SEM_REFERENCIA_TETA
+**Veredito:** `CLEAN` / `REVISAR_RAZAO_INTEIRA` / `REVISAR_FASE_TRAVADA` / `SUSPEITO_HARMONICO_FORTE` / `SEM_REFERENCIA_TETA`
 
 **CLI:**
 ```bash
-python audita_harmonico.py ......csv "<sessao>/RESULTADOS/vencedores.csv" \
-    ......pasta_ns2 "<sessao>/<BASAL>" \
-    ......saida "<sessao>/RESULTADOS/harmonico.csv" \
-    ......janela_contexto_s 45 ......modo_preprocesso hibrido ......f_linha 60.0
+python audita_harmonico.py --csv "<sessao>/RESULTADOS/vencedores.csv"     --pasta_ns2 "<sessao>/<BASAL>"     --saida "<sessao>/RESULTADOS/harmonico.csv"     --janela_contexto_s 45 --modo_preprocesso hibrido --f_linha 60.0
 ```
 
-.........
+---
 
-## 13. udita_harmonico_hfo.py  Teste de razo harmnica G?HFO *(novo 2026...09...05)*
+## 13. `audita_harmonico_hfo.py` — Teste de razão harmônica G→HFO *(novo 2026-09-05)*
 
-Testa se HFO (150250 Hz)  harmnico de Gamma (3080 Hz) usando FOOOF para
-estimar cf_gamma e PLV(nphi_gamma, phi_hfo). Anlogo ao  udita_harmonico.py.
-Vereditos: CLEAN / REVISAR_RAZAO_INTEIRA / REVISAR_FASE_TRAVADA / SUSPEITO_HARMONICO_FORTE / SEM_REFERENCIA_GAMMA.
+Testa se HFO (150-250 Hz) é harmônico de Gamma (30-80 Hz) usando FOOOF para estimar `cf_gamma` e PLV(n × phi_gamma, phi_hfo). Análogo ao `audita_harmonico.py`.
+**Vereditos:** `CLEAN` / `REVISAR_RAZAO_INTEIRA` / `REVISAR_FASE_TRAVADA` / `SUSPEITO_HARMONICO_FORTE` / `SEM_REFERENCIA_GAMMA`.
 
-.........
+---
+
+## 14. Módulo de Análise e Anotação Comportamental *(novo 2026-09)*
+
+Para correlacionar os episódios de acoplamento detectados com o comportamento real do animal registrado em vídeo (.MPG, .mp4), o pipeline conta com três ferramentas complementares:
+
+### 14.1 `gerar_template_comportamento.py` — Extração de Janelas Exclusivas
+- **O que faz:** Varre o CSV mestre de resultados e extrai uma lista única e cronológica de janelas de 10s onde houve detecção de PAC em pelo menos um canal da sessão.
+- **Por que é essencial:** Quando múltiplos canais (ex.: hipocampo CA1, córtex ou estriado) detectam acoplamento na mesma janela temporal, o rato executou exatamente o mesmo comportamento. Agrupar por janela exclusiva evita ter que anotar redundantemente os mesmos 10 segundos várias vezes.
+- **Saída:** `template_comportamento.csv` com colunas `sessao`, `condicao`, `arquivo`, `janela_ini_s`, `janela_fim_s`, `video_tempo_ini`, `video_tempo_fim`, `pares_detectados`, `n_canais_pac`, `comportamento`, `observacoes`.
+
+### 14.2 `anotador_comportamento.py` — Aplicativo Gráfico de Anotação Sincronizada
+- **O que faz:** Interface gráfica interativa construída com **Tkinter + OpenCV + Pillow** para visualização do vídeo em sincronia com o LFP.
+- **Sincronização com Gravação Contínua e Offsets por Arquivo (`offsets_arquivos`):**
+  - Frequentemente a câmera grava um único vídeo longo contínuo (ex: 20 minutos em `.MPG`), enquanto o sistema neural particiona a aquisição em blocos de ~5 minutos (`001.ns2`, `002.ns2`, `003.ns2`), ou sofre pequenas interrupções (como perda de pacotes).
+  - O anotador suporta offsets específicos por arquivo armazenados em `config_anotador.json`. Ao trocar de linha na tabela entre arquivos, o offset correspondente é aplicado e o vídeo salta instantaneamente para o ponto temporal correto.
+- **Recursos de Alta Produtividade:**
+  - **Loop contínuo de 10s:** Repete continuamente a janela de análise para inspeção sem precisar arrastar a barra de progresso.
+  - **Autoplay ao avançar:** Ao salvar ou avançar a linha, o vídeo salta para a nova janela e já começa a tocar.
+  - **Atalhos Rápidos de 1 Toque:** Teclas numéricas `[1]` a `[8]` preenchem categorias padrão (`Imóvel / Descanso`, `Exploração / Locomoção`, `Grooming / Limpeza`, `Rearing / Em pé`, `Sniffing / Farejando`, etc.), salvam silenciosamente e avançam para a próxima janela.
+  - **Digitação Livre e Autocompletar:** Campo de texto com autocompletar de termos já utilizados e confirmação por `Enter`.
+- **Integridade de Codificação (`utf-8-sig`):**
+  - O aplicativo grava o CSV utilizando UTF-8 com BOM (`utf-8-sig`), garantindo que acentos da língua portuguesa não sejam corrompidos ao abrir no Microsoft Excel no Windows.
+
+### 14.3 `junta_comportamento.py` — Mesclagem com o Dataset Mestre
+- **O que faz:** Combina as anotações feitas no `template_comportamento.csv` de volta ao dataset mestre de resultados (`dataset_mestre_final_v2.csv`), propagando o comportamento anotado para todos os canais correspondentes àquela janela temporal.
+
+---
 
 ## Convenções comuns a todos os scripts
 
-... **Notch de Alta Frequência (Desvio da Literatura)**: Kühn et al. (2026) reportaram na prosa de seu artigo a aplicação de Notch apenas em 50Hz. Contudo, o script oficial deles (`rem_noise.m`) demonstra que aplicavam múltiplos Notches em todos os harmônicos (50, 100, 150, 200 Hz). Nosso pipeline faz o equivalente para 60Hz (60, 120, 180, 240 Hz) para limpar a contaminação harmônica da rede elétrica nas bandas HG e HFO (onde antes passava batido).
-... **O Paradoxo HFO vs Ripple (Passo 0.5)**: A triagem de coocorrência resolve a extrema permissividade da banda HFO ampla. O HFO (150-250 Hz) está presente na maior parte das janelas (devido à cauda ruidosa/aperiódica), mas um autêntico "Ripple" é definido por características transitórias em resolução de amostra (≥3 DP acima da mediana, ≥10-25 ms de duração contínua). Janelas com HFO mas sem Ripple são rejeitadas.
-... **Ambiguidade Harmônica no HFO**: Ao estender `n_max` para testar se HFO é harmônico de Theta (ex: 200Hz / 8Hz = n=25), múltiplos harmônicos poderiam se sobrepor à mesma banda em `tol=10%` se o n_max fosse global. Adotamos o distanciamento exato (`n` dinâmico por candidato) resolvendo os casos onde o plv pudesse retornar ambíguo erroneamente.
-... **Nula de surrogates:** deslocamento circular >= 1 s, 200 repetições, semente 42.
-... **Parâmetros canônicos:** janela 10 s / passo 5 s; theta 4-8 Hz x gamma 30-80 Hz; n_bins 18; 200 surrogates.
-... **filtra_sinal**: Butterworth bandpass, filtfilt (zero fase), ordem 3.
-... **_mi_de_bin_idx**: núcleo vetorizado do KL-MI via np.bincount.
-... **bh_fdr**: Benjamini-Hochberg; m_total = família completa de testes.
+- **Notch de Alta Frequência (Desvio da Literatura)**: Kühn et al. (2026) reportaram na prosa de seu artigo a aplicação de Notch apenas em 50Hz. Contudo, o script oficial deles (`rem_noise.m`) demonstra que aplicavam múltiplos Notches em todos os harmônicos (50, 100, 150, 200 Hz). Nosso pipeline faz o equivalente para 60Hz (60, 120, 180, 240 Hz) para limpar a contaminação harmônica da rede elétrica nas bandas HG e HFO.
+- **O Paradoxo HFO vs Ripple (Passo 0.5)**: A triagem de coocorrência resolve a extrema permissividade da banda HFO ampla. O HFO (150-250 Hz) está presente na maior parte das janelas (devido à cauda ruidosa/aperiódica), mas um autêntico "Ripple" é definido por características transitórias em resolução de amostra (≥3 DP acima da mediana, ≥10-25 ms de duração contínua). Janelas com HFO mas sem Ripple são rejeitadas.
+- **Ambiguidade Harmônica no HFO**: Ao estender `n_max` para testar se HFO é harmônico de Theta (ex: 200Hz / 8Hz = n=25), múltiplos harmônicos poderiam se sobrepor à mesma banda em `tol=10%` se o n_max fosse global. Adotamos o distanciamento exato (`n` dinâmico por candidato) resolvendo os casos onde o plv pudesse retornar ambíguo erroneamente.
+- **Nula de surrogates:** deslocamento circular >= 1 s, 200 repetições, semente 42.
+- **Parâmetros canônicos:** janela 10 s / passo 5 s; theta 4-8 Hz x gamma 30-80 Hz; n_bins 18; 200 surrogates.
+- **filtra_sinal**: Butterworth bandpass, filtfilt (zero fase), ordem 3.
+- **_mi_de_bin_idx**: núcleo vetorizado do KL-MI via np.bincount.
+- **bh_fdr**: Benjamini-Hochberg; m_total = família completa de testes.
 
-## Princpio revisor
+## Princípio revisor
 
-> Casos especficos de sesso (canais, janelas, offsets, vencedores)
-> **NUNCA** entram hardcoded no cdigo. Entram por CLI/CSV.
+> Casos específicos de sessão (canais, janelas, offsets, vencedores)
+> **NUNCA** entram hardcoded no código. Entram por CLI/CSV/JSON.
 
-.........
+---
 
-## Pipeline multi...acoplamento: Theta...Gamma / Theta...HG / Theta...HFO
-
-*(atualizao 2026...09...05)*
+## Pipeline multi-acoplamento: Theta-Gamma / Theta-HG / Theta-HFO
 
 | Par | Banda amplitude | Substrato | Estado |
-|.........|.........|.........|.........|
-| 	heta_gamma | 30...80 Hz | Fast gamma: CA3...>CA1 | Explorao |
-| 	heta_hg | 80...150 Hz | High gamma: EC...>CA1 | Misto |
-| 	heta_hfo | 150...250 Hz | HFO/ripple: CA1 local | Repouso/SWR |
+|---|---|---|---|
+| `theta_gamma` | 30–80 Hz | Fast gamma: CA3 $\rightarrow$ CA1 | Exploração |
+| `theta_hg` | 80–150 Hz | High gamma: EC $\rightarrow$ CA1 | Misto |
+| `theta_hfo` | 150–250 Hz | HFO/ripple: CA1 local | Repouso/SWR |
 
-**Eficincia:** 3 pares x 59 janelas x 200 surrogates ~ 8 s para 300 s de sinal, 1 canal.
+**Eficiência:** 3 pares × 59 janelas × 200 surrogates $\approx$ 8 s para 300 s de sinal, 1 canal.
 
 ```bash
 # .mat direto (sem .ns2):
-python pipeline/triagem_pac_mat.py ......mat DADOS_EXEMPLO_LFP_HG_HFO/LFP_HG_HFO.mat
+python pipeline/triagem_pac_mat.py --mat DADOS_EXEMPLO_LFP_HG_HFO/LFP_HG_HFO.mat
 
-# .ns2 multi...par:
-python pipeline/triagem_pac.py ......pasta <sessao>/BASAL \
-    ......pares theta_gamma theta_hg theta_hfo \
-    ......saida <sessao>/RESULTADOS/resultados_triplo.csv
+# .ns2 multi-par:
+python pipeline/triagem_pac.py --pasta <sessao>/BASAL     --pares theta_gamma theta_hg theta_hfo     --saida <sessao>/RESULTADOS/resultados_triplo.csv
 ```
 
-### Resultado validado no LFP_HG_HFO.mat (2026...09...05)
+### Resultado validado no LFP_HG_HFO.mat (2026-09-05)
 
-| Par | z mediana | z std | Candidatos (z>=3) |
-|.........|.........|.........|.........|
-| theta_gamma | 6.93 | 2.96 | 58/59 |
-| theta_hg | 12.39 | 4.75 | 57/59 |
-| theta_hfo | 0.50 | 1.52 | 7/59 |
+| Par | z mediana | z std | Candidatos (z >= 3) |
+|---|---|---|---|
+| `theta_gamma` | 6.93 | 2.96 | 58/59 |
+| `theta_hg` | 12.39 | 4.75 | 57/59 |
+| `theta_hfo` | 0.50 | 1.52 | 7/59 |
 
-	eta_ok: 17/59 (29±), std=0.457  varia (bug de cache corrigido).
-
-atio_hfo_gamma mediana=0.013  HFO nao e harmonico de Gamma.
-
-### Bugs corrigidos em 2026...09...05
-
-| Bug | Sintoma | Causa | Correccao |
-|.........|.........|.........|.........|
-| Cache 	eta_ok | 58/58 = 1, variancia zero | Calculo fora do loop | Movido para 	eta_ok_por_janela() dentro do loop |
-| z...score single...surrogate | z = 3e14 alternando com 0 | max(mi_s*0.1, 0.01) como "dp" | Substituido por mi_com_surrogates() 100 surrogates |
-| Escala .mat | Diagnostico invisivel | Sem verificacao de std | dapta_lfp_mat.py com info_sinal() + ......normaliza |
+- `teta_ok`: 17/59 (29%), std=0.457 varia por janela (verificação dinâmica calculada dentro do loop).
+- `ratio_hfo_gamma`: mediana=0.013 (HFO não é harmônico de Gamma).

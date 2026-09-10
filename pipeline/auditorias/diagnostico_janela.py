@@ -41,20 +41,14 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 import numpy as np
 import scipy.signal as signal
 import matplotlib.pyplot as plt
 
 from ns2_utils import le_ns2, fatia_janela
-
-
-def filtra_sinal(sinal_in, lowcut, highcut, fs, order=3):
-    nyq = 0.5 * fs
-    low = max(lowcut / nyq, 1e-6)
-    high = min(highcut / nyq, 0.999)
-    b, a = signal.butter(order, [low, high], btype="bandpass")
-    return signal.filtfilt(b, a, sinal_in)
+from pac_core.filtering import filtra_sinal, aplica_notch
 
 
 def _mi_de_bin_idx(bin_idx, envelope, n_bins):
@@ -88,21 +82,6 @@ def mi_z(fase, envelope, fs, n_surr=200, n_bins=18, rng=None):
     dp = np.std(mi_surr)
     z = (mi_obs - np.mean(mi_surr)) / dp if dp > 0 else 0.0
     return mi_obs, z
-
-
-def aplica_notch(sinal_in, fs, freqs_notch, q_factor=30.0):
-    if not freqs_notch:
-        return sinal_in
-    nyq = 0.5 * fs
-    out = sinal_in
-    if not isinstance(freqs_notch, (list, tuple, np.ndarray)):
-        freqs_notch = [freqs_notch]
-    for f in freqs_notch:
-        if f >= nyq * 0.98:
-            continue
-        b, a = signal.iirnotch(f / nyq, q_factor)
-        out = signal.filtfilt(b, a, out)
-    return out
 
 
 def main():

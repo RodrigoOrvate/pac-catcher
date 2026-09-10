@@ -49,16 +49,20 @@ Requer: neo, numpy, scipy, pandas
 """
 
 import argparse
+import os
 import sys
 
 import numpy as np
 import pandas as pd
 import scipy.signal as signal
 
-from comodulogram import (filtra_sinal, aplica_notch, calcula_comodulograma_z,
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from comodulogram import (calcula_comodulograma_z,
                           z_pico_par, _mi_de_bin_idx, FASES_DEFAULT, AMPS_DEFAULT)
 from ns2_utils import le_ns2, fatia_janela
-from triagem_pac import detecta_transiente, correlacao_gama_ruido, verifica_pixel_isolado
+from triagem_pac import detecta_transiente, correlacao_gama_ruido
+from pac_core.filtering import filtra_sinal, aplica_notch
 
 N_BINS_SWEEP = [10, 12, 15, 18, 24, 30]
 MEIA_FAISES = [0.7, 1.0, 1.5, 2.5]

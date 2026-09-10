@@ -58,6 +58,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 import numpy as np
 import pandas as pd
@@ -68,7 +69,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from ns2_utils import le_ns2, fatia_janela
-from comodulogram import filtra_sinal, aplica_notch, _mi_de_bin_idx
+from comodulogram import _mi_de_bin_idx
+from pac_core.filtering import filtra_sinal, aplica_notch
 
 # Mesmos parâmetros do comodulogram.py / triagem_pac.py
 N_BINS = 18

@@ -7,7 +7,7 @@ DADOS_EXEMPLO*/
 *.mat
 
 # Configuração local do Claude Code (todo o diretório)
-.claude/
+#.claude/
 
 # Cache de bytecode Python
 __pycache__/

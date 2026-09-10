@@ -43,8 +43,10 @@ import scipy.signal as signal
 import scipy.stats as stats
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ns2_utils import le_ns2, fatia_janela
 from triagem_pac import BAND_PAIRS, detecta_transiente, correlacao_gama_ruido
+from pac_core.filtering import filtra_sinal
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")
@@ -54,14 +56,8 @@ except Exception:
 
 # ==========================================
 # FUNÇÕES DE PROCESSAMENTO
+# filtra_sinal agora vem de pac_core.filtering (import no topo)
 # ==========================================
-
-def filtra_sinal(sinal_in, lowcut, highcut, fs, order=3):
-    nyq = 0.5 * fs
-    low = max(lowcut / nyq, 1e-6)
-    high = min(highcut / nyq, 0.999)
-    b, a = signal.butter(order, [low, high], btype="bandpass")
-    return signal.filtfilt(b, a, sinal_in)
 
 
 def _mi_de_bin_idx(bin_idx, envelope, n_bins):

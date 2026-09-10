@@ -49,6 +49,10 @@ import pandas as pd
 import scipy.signal as signal
 from scipy.signal import welch
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from pac_core.filtering import filtra_sinal
+
 # ==========================================
 # CONFIGURAÇÃO DOS PARES DE BANDA
 # ==========================================
@@ -74,15 +78,8 @@ BAND_PAIRS = {
 
 # ==========================================
 # FUNÇÕES DE PROCESSAMENTO
+# filtra_sinal agora vem de pac_core.filtering (import no topo)
 # ==========================================
-
-def filtra_sinal(sinal, lowcut, highcut, fs, order=3):
-    nyq = 0.5 * fs
-    low  = max(lowcut  / nyq, 1e-6)
-    high = min(highcut / nyq, 0.999)
-    b, a = signal.butter(order, [low, high], btype="bandpass")
-    return signal.filtfilt(b, a, sinal)
-
 
 def calcula_mi(fase, envelope, n_bins=18):
     bins = np.linspace(-np.pi, np.pi, n_bins + 1)

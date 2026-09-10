@@ -38,6 +38,7 @@ O código é unificado e vive na pasta raiz (`SCRIPT/`). Abaixo, o mapa de ferra
   - `comodulogram.py`: Gera mapas de calor 2D (fase x amplitude) com filtros notch aplicados.
   - `robustez_parametros.py` & `figura_apresentacao.py`: Testa estabilidade (varredura de n_bins, filtros) e plota STFT e gráficos polares para apresentação.
   - `exploracao_minuto.py` / `comodulogram_interativo.py`: Scripts para navegação visual e inspeção prévia dos dados antes da triagem cega.
+  - Análise Comportamental: `gerar_template_comportamento.py` (cria template de janelas exclusivas), `anotador_comportamento.py` (GUI para sincronização com vídeo por offset, loop 10s e anotação ágil), `junta_comportamento.py` (mescla anotações ao dataset mestre).
   - Utilitários: `ns2_utils.py` (lê os dados brutos .ns2), `extrair_picos.py`, `adapta_lfp_mat.py`, `gerar_relatorio_pdf.py`.
 
 - **`pipeline/auditorias/`**: Filtros e testes secundários rigorosos para falsos positivos.
@@ -108,6 +109,32 @@ python pipeline/comodulogram.py \
     --saida_dir "../SESSAO_EXEMPLO/RESULTADOS/comodulogramas" \
     --notch 60 --fdr_q 0.05
 ```
+
+---
+
+### Passo 3.5: Anotação Comportamental Sincronizada com Vídeo
+Para correlacionar os episódios de acoplamento detectados com o comportamento real do animal (exploração, sniffing, grooming, imobilidade/descanso, rearing):
+
+1. **Gerar o Template de Janelas Exclusivas:**
+   Agrupa as janelas onde houve detecção de PAC em qualquer canal, evitando anotações repetidas da mesma janela temporal:
+   ```bash
+   python pipeline/gerar_template_comportamento.py --csv_mestre ../dataset_mestre_final_v2.csv --saida ../template_comportamento.csv
+   ```
+
+2. **Anotar via Interface Gráfica:**
+   Abre o aplicativo gráfico que sincroniza o vídeo contínuo (`.MPG`, `.mp4`) com os blocos de gravação neural (`.ns2`):
+   ```bash
+   python pipeline/anotador_comportamento.py
+   ```
+   - **Múltiplos Arquivos por Sessão:** Gerencia automaticamente sessões com múltiplos blocos (ex.: `001.ns2`, `002.ns2`, `003.ns2`), permitindo offsets independentes no `config_anotador.json` e compensando pausas ou gaps de gravação da máquina.
+   - **Playback Ágil:** Toca cada janela de 10s em loop contínuo com reprodução automática ao avançar.
+   - **Atalhos Rápidos:** Pressione as teclas de atalho numéricas `[1]` a `[8]` ou digite livremente e tecle `Enter` para salvar e pular para o próximo momento.
+   - **Compatibilidade Excel:** Salva nativamente com codificação `utf-8-sig` (UTF-8 com BOM), garantindo integridade de acentos no Windows/Excel.
+
+3. **Mesclar Anotações ao Dataset Mestre:**
+   ```bash
+   python pipeline/junta_comportamento.py --template ../template_comportamento.csv --csv_mestre ../dataset_mestre_final_v2.csv --saida ../dataset_mestre_final_comportamento.csv
+   ```
 
 ---
 

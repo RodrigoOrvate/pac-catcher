@@ -51,8 +51,9 @@ import sys
 import numpy as np
 import pandas as pd
 
-# Adiciona o pipeline ao path para importar triagem_pac e adapta_lfp_mat
+# Adiciona o pipeline e a raiz do SCRIPT ao path (triagem_pac + pac_core)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from triagem_pac import BAND_PAIRS, varre_canal
 
@@ -77,8 +78,7 @@ def carrega_mat_com_diagnostico(caminho_mat, canal_mat=None, normaliza=False,
 
     Retorna: (sinal_1d_float64, fs, nome_chave_usada)
     """
-    import scipy.io
-    from adapta_lfp_mat import carrega_lfp_mat, info_sinal, normaliza_sinal, fs_do_mat
+    from pac_core.io import le_mat as carrega_lfp_mat, info_sinal, normaliza_sinal, fs_do_mat
 
     print(f"Carregando: {caminho_mat}")
     arr, fs, chave = carrega_lfp_mat(caminho_mat, canal_mat)

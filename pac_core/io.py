@@ -7,10 +7,11 @@ comodulogram, auditorias/*, preditor/*).
 
 Lê .ns2 (Blackrock) diretamente via `neo`, sem precisar do extrator.exe.
 Também aceita .bin legado (int16 puro, já extraído), para quem ainda
-tiver arquivos processados pelo pipeline antigo.
+tiver arquivos processados pelo pipeline antigo, e .mat (MATLAB/tetrodo),
+para o fluxo de `triagem_pac_mat.py`.
 
-Requer: neo, numpy
-    pip install neo numpy
+Requer: neo, numpy, scipy
+    pip install neo numpy scipy
 """
 
 import os
@@ -57,11 +58,104 @@ def le_bin_legado(caminho_arquivo, n_canais, fs=1000.0):
     return dados, float(fs), canal_ids
 
 
+def fs_do_mat(m):
+    """
+    Detecta a taxa de amostragem em um dicionário do scipy.io.loadmat.
+    Tenta variáveis comuns: fs, Fs, srate, samplingRate.
+    Retorna 1000.0 se não encontrar.
+    """
+    for chave in ["fs", "Fs", "srate", "samplingRate", "SR"]:
+        if chave in m:
+            val = m[chave]
+            try:
+                return float(np.squeeze(val))
+            except Exception:
+                pass
+    return 1000.0
+
+
+def le_mat(path, chave=None):
+    """
+    Carrega um LFP de um arquivo .mat (MATLAB/tetrodo).
+
+    Se 'chave' é None, tenta na ordem:
+      lfp, LFP, lfpBruto, lfpHG, lfpHFO, signal, data
+
+    Retorna (array_float64, fs_float, chave_usada).
+
+    NOTA: não garante 1D -- se a chave encontrada apontar para um array 2D
+    genuinamente multi-canal (ex.: FOOOF/CA1_example.mat, shape (N,4)),
+    o array retornado também é 2D (np.squeeze não achata dimensões >1).
+    Esse comportamento é herdado de adapta_lfp_mat.py sem alteração --
+    hoje nenhum consumidor real aponta para arquivos desse formato por
+    este caminho.
+    """
+    import scipy.io
+
+    m = scipy.io.loadmat(path)
+    chaves_candidatas = (
+        [chave] if chave else
+        ["lfp", "LFP", "lfpBruto", "lfpHG", "lfpHFO", "signal", "data"]
+    )
+    for c in chaves_candidatas:
+        if c in m:
+            arr = np.squeeze(m[c]).astype(np.float64)
+            fs = fs_do_mat(m)
+            return arr, fs, c
+    raise KeyError(
+        f"Nenhuma das chaves {chaves_candidatas} encontrada em {path}.\n"
+        f"Chaves disponíveis: {[k for k in m if not k.startswith('_')]}"
+    )
+
+
+def normaliza_sinal(arr):
+    """
+    Normalização robusta: (x - median) / MAD.
+    Mantém a forma do sinal, remove outliers de offset, escala para ~unidades.
+    Preferida ao z-score mean/std quando há outliers (artefatos).
+    """
+    med = np.median(arr)
+    mad = np.median(np.abs(arr - med))
+    if mad < 1e-12:
+        # Fallback para std se MAD for zero (sinal constante)
+        std = arr.std()
+        if std < 1e-12:
+            return arr - med  # sinal constante
+        return (arr - med) / std
+    return (arr - med) / mad
+
+
+def info_sinal(arr, nome="sinal", fs=None):
+    """
+    Imprime diagnóstico de escala do sinal. Essencial para detectar
+    problemas de normalização antes de passar pelo pipeline.
+    """
+    duracao = len(arr) / fs if fs else None
+    print(f"  [{nome}]")
+    print(f"    shape: {arr.shape}, dtype: {arr.dtype}")
+    if duracao:
+        print(f"    duração: {duracao:.1f} s @ {fs:.0f} Hz")
+    print(f"    min={arr.min():.4g}  max={arr.max():.4g}")
+    print(f"    mean={arr.mean():.4g}  std={arr.std():.4g}")
+    med = np.median(arr)
+    mad = np.median(np.abs(arr - med))
+    print(f"    median={med:.4g}  MAD={mad:.4g}")
+    # Alerta de escala
+    if arr.std() > 5000:
+        print(f"    *** AVISO: std={arr.std():.1f} muito alto — provável escala em nV ou "
+              f"contagem ADC. Considere --normaliza ou converta para µV.")
+    elif arr.std() < 0.001:
+        print(f"    *** AVISO: std={arr.std():.6f} muito baixo — provável escala em V.")
+    else:
+        print(f"    Escala aparenta ser µV (std razoável para LFP).")
+
+
 def carrega_dados(caminho_arquivo, n_canais_bin=16, fs_bin=1000.0):
     """
     Dispatcher automático: escolhe o leitor certo pela extensão do arquivo.
     - .ns2         -> le_ns2 (leitura direta, sem extrator.exe)
     - .bin/.dat    -> le_bin_legado (formato antigo já extraído)
+    - .mat         -> le_mat (MATLAB/tetrodo)
 
     n_canais_bin e fs_bin só são usados no caminho .bin legado, onde essa
     informação não está no cabeçalho do arquivo (precisa ser informada
@@ -72,10 +166,20 @@ def carrega_dados(caminho_arquivo, n_canais_bin=16, fs_bin=1000.0):
         return le_ns2(caminho_arquivo)
     elif ext in (".bin", ".dat"):
         return le_bin_legado(caminho_arquivo, n_canais_bin, fs_bin)
+    elif ext == ".mat":
+        arr, fs, chave = le_mat(caminho_arquivo)
+        if arr.ndim == 1:
+            dados = arr.reshape(-1, 1)
+            canal_ids = [chave]
+        else:
+            dados = arr
+            canal_ids = [f"{chave}{i}" for i in range(dados.shape[1])]
+        return dados, fs, canal_ids
     else:
         raise ValueError(
-            f"Extensão '{ext}' não reconhecida. Use .ns2 (direto) ou "
-            f".bin/.dat (formato legado extraído pelo extrator.exe)."
+            f"Extensão '{ext}' não reconhecida. Use .ns2 (direto), "
+            f".bin/.dat (formato legado extraído pelo extrator.exe) ou "
+            f".mat (MATLAB/tetrodo)."
         )
 
 

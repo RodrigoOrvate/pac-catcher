@@ -6,6 +6,11 @@ Diagnóstico de escala: imprime min/max/std/mean do sinal carregado ANTES
 de qualquer processamento. Isso é essencial para detectar problemas de
 normalização que causam z-scores absurdos (overflow).
 
+Shim de compatibilidade: a leitura de .mat foi movida para pac_core/io.py.
+Este módulo continua existindo para preservar a CLI (`--mat/--saida_csv/
+--normaliza/--verbose`) e o nome `carrega_lfp_mat` que outros scripts
+importam. Novo código deve importar diretamente de `pac_core.io`.
+
 Funções exportadas para uso em outros scripts:
   carrega_lfp_mat(path, chave)   — carrega uma variável do .mat
   normaliza_sinal(arr)           — z-score robusto (median/MAD)
@@ -17,99 +22,20 @@ import os
 import sys
 
 import numpy as np
-import scipy.io
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from pac_core.io import (  # noqa: F401 - re-export para compatibilidade
+    le_mat as carrega_lfp_mat,
+    normaliza_sinal,
+    info_sinal,
+    fs_do_mat,
+)
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")
 except Exception:
     pass
-
-
-# ============================================================
-# Funções utilitárias exportáveis
-# ============================================================
-
-def fs_do_mat(m):
-    """
-    Detecta a taxa de amostragem em um dicionário do scipy.io.loadmat.
-    Tenta variáveis comuns: fs, Fs, srate, samplingRate.
-    Retorna 1000.0 se não encontrar.
-    """
-    for chave in ["fs", "Fs", "srate", "samplingRate", "SR"]:
-        if chave in m:
-            val = m[chave]
-            try:
-                return float(np.squeeze(val))
-            except Exception:
-                pass
-    return 1000.0
-
-
-def carrega_lfp_mat(path, chave=None):
-    """
-    Carrega um LFP de um arquivo .mat.
-
-    Se 'chave' é None, tenta na ordem:
-      lfp, LFP, lfpBruto, lfpHG, lfpHFO, signal, data
-
-    Retorna (array_1d_float64, fs_float, chave_usada).
-    """
-    m = scipy.io.loadmat(path)
-    chaves_candidatas = (
-        [chave] if chave else
-        ["lfp", "LFP", "lfpBruto", "lfpHG", "lfpHFO", "signal", "data"]
-    )
-    for c in chaves_candidatas:
-        if c in m:
-            arr = np.squeeze(m[c]).astype(np.float64)
-            fs = fs_do_mat(m)
-            return arr, fs, c
-    raise KeyError(
-        f"Nenhuma das chaves {chaves_candidatas} encontrada em {path}.\n"
-        f"Chaves disponíveis: {[k for k in m if not k.startswith('_')]}"
-    )
-
-
-def info_sinal(arr, nome="sinal", fs=None):
-    """
-    Imprime diagnóstico de escala do sinal. Essencial para detectar
-    problemas de normalização antes de passar pelo pipeline.
-    """
-    duracao = len(arr) / fs if fs else None
-    print(f"  [{nome}]")
-    print(f"    shape: {arr.shape}, dtype: {arr.dtype}")
-    if duracao:
-        print(f"    duração: {duracao:.1f} s @ {fs:.0f} Hz")
-    print(f"    min={arr.min():.4g}  max={arr.max():.4g}")
-    print(f"    mean={arr.mean():.4g}  std={arr.std():.4g}")
-    med = np.median(arr)
-    mad = np.median(np.abs(arr - med))
-    print(f"    median={med:.4g}  MAD={mad:.4g}")
-    # Alerta de escala
-    if arr.std() > 5000:
-        print(f"    *** AVISO: std={arr.std():.1f} muito alto — provável escala em nV ou "
-              f"contagem ADC. Considere --normaliza ou converta para µV.")
-    elif arr.std() < 0.001:
-        print(f"    *** AVISO: std={arr.std():.6f} muito baixo — provável escala em V.")
-    else:
-        print(f"    Escala aparenta ser µV (std razoável para LFP).")
-
-
-def normaliza_sinal(arr):
-    """
-    Normalização robusta: (x - median) / MAD.
-    Mantém a forma do sinal, remove outliers de offset, escala para ~unidades.
-    Preferida ao z-score mean/std quando há outliers (artefatos).
-    """
-    med = np.median(arr)
-    mad = np.median(np.abs(arr - med))
-    if mad < 1e-12:
-        # Fallback para std se MAD for zero (sinal constante)
-        std = arr.std()
-        if std < 1e-12:
-            return arr - med  # sinal constante
-        return (arr - med) / std
-    return (arr - med) / mad
 
 
 # ============================================================

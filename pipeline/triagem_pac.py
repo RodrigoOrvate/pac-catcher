@@ -404,12 +404,19 @@ def varre_arquivo(caminho, canais=None, window_s=10.0, step_s=5.0,
 # MODO DEMO
 # ==========================================
 
-def roda_demo(pares=None):
-    print("=== DEMO: validando critério de flagging em dados sintéticos ===\n")
-    fs  = 1000.0
-    dur = 60.0
-    t   = np.arange(0, dur, 1 / fs)
-    rng = np.random.default_rng(0)
+def gera_sinal_demo(fs=1000.0, dur=60.0, seed=0):
+    """Sinal sintético determinístico do modo --demo: teta com jitter
+    biológico, gamma 60 Hz e HG 100 Hz acoplados APENAS na segunda metade
+    do sinal (primeira metade é teta puro + ruído, sem acoplamento).
+
+    Devolve (sinal, fs, rng) — o `rng` é devolvido COM O ESTADO JÁ CONSUMIDO
+    pela geração, porque roda_demo() historicamente reaproveita o mesmo
+    gerador na chamada de varre_canal() logo em seguida. Não recrie o
+    gerador aqui dentro nem troque a ordem das chamadas de rng, ou a saída
+    de --demo muda.
+    """
+    t = np.arange(0, dur, 1 / fs)
+    rng = np.random.default_rng(seed)
 
     # Theta com jitter biológico
     freq_inst = 6.0 + np.cumsum(rng.normal(0, 0.002, len(t)))
@@ -428,6 +435,14 @@ def roda_demo(pares=None):
     sinal[:meio]  = theta[:meio] + rng.normal(0, 0.4, meio)
     sinal[meio:]  = (theta[meio:] + gamma_acoplado[meio:]
                      + hg_acoplado[meio:] + rng.normal(0, 0.4, len(t) - meio))
+
+    return sinal, fs, rng
+
+
+def roda_demo(pares=None):
+    print("=== DEMO: validando critério de flagging em dados sintéticos ===\n")
+    dur = 60.0
+    sinal, fs, rng = gera_sinal_demo(fs=1000.0, dur=dur, seed=0)
 
     if pares is None:
         pares = {"theta_gamma": BAND_PAIRS["theta_gamma"],

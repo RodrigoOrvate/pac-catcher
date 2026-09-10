@@ -205,6 +205,50 @@ def contexto_amplitude(lfp_bruto, coluna_canal_inteira, fs, dados_janela_todos,
     }
 
 
+def audita_transientes_de_sinal(lfp, fs, fp, fa, ks=(6.0, 5.0), n_sub=5,
+                                notch_hz=NOTCH_HZ, n_bins=N_BINS, n_surr=N_SURR,
+                                rng=None):
+    """
+    Núcleo: baseline -> despike (k em `ks`) -> `n_sub` sub-janelas -> histograma
+    de fase. Mesma sequência e mesmos parâmetros do loop de `main()` (sem a
+    parte de plotagem). `lfp` é a janela já fatiada, SEM notch -- a função
+    aplica o notch internamente, na mesma ordem que `main()` já fazia.
+
+    Devolve dict com z/mi de cada condição, mais env/bin_idx da condição
+    baseline (para quem quiser o histograma de fase) e `hist_fase`.
+    """
+    lfp_n = aplica_notch(lfp, fs, linha_hz=notch_hz)
+
+    z0, mi0, env, bin_idx = mi_z_par(lfp_n, fs, fp, fa, n_bins=n_bins, n_surr=n_surr, rng=rng)
+
+    despike = {}
+    for k in ks:
+        limpo, ruins, limiar, frac = remove_transientes(lfp_n, fs, k=k)
+        zk, mik, _, _ = mi_z_par(limpo, fs, fp, fa, n_bins=n_bins, n_surr=n_surr, rng=rng)
+        despike[k] = {"z": zk, "mi": mik, "frac": frac, "limiar": limiar}
+
+    dur = lfp_n.size // n_sub
+    z_sub, mi_sub = [], []
+    for s in range(n_sub):
+        pedaco = lfp_n[s * dur:(s + 1) * dur]
+        zsub, misub, _, _ = mi_z_par(pedaco, fs, fp, fa, n_bins=n_bins, n_surr=n_surr, rng=rng)
+        z_sub.append(zsub)
+        mi_sub.append(misub)
+
+    cont = np.bincount(bin_idx, minlength=n_bins)
+    soma = np.bincount(bin_idx, weights=env, minlength=n_bins)
+    media_bins = np.divide(soma, cont, out=np.zeros(n_bins), where=cont > 0)
+    hist_fase = media_bins / media_bins.sum() * n_bins
+
+    return {
+        "z_baseline": z0, "mi_baseline": mi0,
+        "despike": despike,  # {k: {"z","mi","frac","limiar"}}
+        "z_sub": z_sub, "mi_sub": mi_sub,
+        "env": env, "bin_idx": bin_idx, "hist_fase": hist_fase,
+        "lfp_notch": lfp_n,
+    }
+
+
 # ==========================================
 # FIGURA POR CASO
 # ==========================================
@@ -314,7 +358,6 @@ def main():
         dados, fs, mapa = carrega(caso["arquivo"])
         idx = mapa[caso["canal"]]
         lfp = fatia_janela(dados[:, idx], fs, caso["ini"], caso["fim"]).astype(float)
-        lfp_n = aplica_notch(lfp, fs, linha_hz=NOTCH_HZ)
         coluna = dados[:, idx]
 
         dados_janela = fatia_janela(dados, fs, caso["ini"], caso["fim"])
@@ -334,8 +377,12 @@ def main():
               f"kurtose bruto={ctx['kurtose_bruto']:.1f} "
               f"gama={ctx['kurtose_gama']:.1f}")
 
+        res = audita_transientes_de_sinal(lfp, fs, caso["fp"], caso["fa"])
+        lfp_n = res["lfp_notch"]
+        z0, mi0, env, bin_idx = res["z_baseline"], res["mi_baseline"], res["env"], res["bin_idx"]
+        hist_fase = res["hist_fase"]
+
         # 1) baseline (idêntico ao publicado)
-        z0, mi0, env, bin_idx = mi_z_par(lfp_n, fs, caso["fp"], caso["fa"])
         print(f"  baseline:           z={z0:6.2f}  MI={mi0:.4f}")
         linhas_z.append(dict(caso=caso["rotulo"], canal=caso["canal"],
                              condicao="baseline", z=z0, mi=mi0, frac_removida=0.0))
@@ -343,8 +390,8 @@ def main():
         # 2) despike k=6 e k=5
         rotulo_z = {"baseline": z0}
         for k in (6.0, 5.0):
-            limpo, ruins, limiar, frac = remove_transientes(lfp_n, fs, k=k)
-            zk, mik, _, _ = mi_z_par(limpo, fs, caso["fp"], caso["fa"])
+            d = res["despike"][k]
+            zk, mik, frac, limiar = d["z"], d["mi"], d["frac"], d["limiar"]
             nome = f"despike_k{int(k)}"
             print(f"  {nome} (frac={frac*100:5.2f}%): z={zk:6.2f}  MI={mik:.4f}  "
                   f"limiar=+-{limiar:.0f}")
@@ -355,11 +402,9 @@ def main():
         # 3) sub-janelas de 2s
         n_sub = 5
         dur = lfp_n.size // n_sub
-        zs_sub = []
+        zs_sub = res["z_sub"]
         for s in range(n_sub):
-            pedaco = lfp_n[s * dur:(s + 1) * dur]
-            zsub, misub, _, _ = mi_z_par(pedaco, fs, caso["fp"], caso["fa"])
-            zs_sub.append(zsub)
+            zsub, misub = res["z_sub"][s], res["mi_sub"][s]
             nome = f"sub{s + 1}_{caso['ini'] + s * dur / fs:.0f}-{caso['ini'] + (s + 1) * dur / fs:.0f}s"
             rotulo_z[nome] = zsub
             linhas_z.append(dict(caso=caso["rotulo"], canal=caso["canal"],
@@ -367,10 +412,6 @@ def main():
         print(f"  sub-janelas 2s:     z=" + ", ".join(f"{z:5.2f}" for z in zs_sub))
 
         # histograma de fase (desritivo) na condição baseline
-        cont = np.bincount(bin_idx, minlength=N_BINS)
-        soma = np.bincount(bin_idx, weights=env, minlength=N_BINS)
-        media_bins = np.divide(soma, cont, out=np.zeros(N_BINS), where=cont > 0)
-        hist_fase = media_bins / media_bins.sum() * N_BINS
         print(f"  excesso máx de fase: {hist_fase.max():.2f}x a média "
               f"(bin {int(np.argmax(hist_fase))})")
 

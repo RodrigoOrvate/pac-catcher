@@ -56,12 +56,12 @@ import numpy as np
 import pandas as pd
 import scipy.signal as signal
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from comodulogram import (calcula_comodulograma_z,
+from pipeline.etapa3_comodulograma.comodulogram import (calcula_comodulograma_z,
                           z_pico_par, FASES_DEFAULT, AMPS_DEFAULT)
-from ns2_utils import le_ns2, fatia_janela
-from triagem_pac import detecta_transiente, correlacao_gama_ruido
+from pac_core.io import le_ns2, fatia_janela
+from pipeline.etapa1_triagem.triagem_pac import detecta_transiente, correlacao_gama_ruido
 from pac_core.filtering import filtra_sinal, aplica_notch
 from pac_core.pac_metrics import (
     fase_para_bin_idx, _mi_de_bin_idx, gera_deslocamentos,

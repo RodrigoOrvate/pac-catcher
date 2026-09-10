@@ -43,12 +43,12 @@ import scipy.signal as signal
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from comodulogram import (calcula_comodulograma_z,
+from pipeline.etapa3_comodulograma.comodulogram import (calcula_comodulograma_z,
                           _mi_de_bin_idx, FASES_DEFAULT, AMPS_DEFAULT)
-from robustez_parametros import mi_z_par
-from ns2_utils import le_ns2, fatia_janela
+from pipeline.etapa7_validacao.robustez_parametros import mi_z_par
+from pac_core.io import le_ns2, fatia_janela
 from pac_core.filtering import filtra_sinal, aplica_notch
 
 N_SURR = 200

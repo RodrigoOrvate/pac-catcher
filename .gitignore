@@ -25,6 +25,7 @@ figuras/
 dataset_mestre_final.csv
 dataset_mestre_final_v2.csv
 template_comportamento.csv
+config_anotador.json
 roda_lote_mtesc.ps1
 *.png
 *.pdf

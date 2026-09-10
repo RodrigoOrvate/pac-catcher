@@ -21,7 +21,6 @@ C:\acoplamento_theta-gamma\
 │   │   ├── junta_comportamento.py
 │   │   ├── ns2_utils.py
 │   │   └── auditorias/              ← Validação e filtros de artefatos
-│   ├── FOOOF/                       ← Decomposição aperiódica 1/f (Kuhn et al., 2026)
 │   ├── preditor/                    ← Previsão de PAC em tempo real / ML
 │   └── tests/                       ← Testes unitários e dados sintéticos
 ├── LAC_NOCI\                        ← Dados brutos eletrofisiológicos (.ns2, .nev) e vídeos (.MPG)

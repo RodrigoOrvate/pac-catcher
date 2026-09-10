@@ -69,8 +69,11 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from ns2_utils import le_ns2, fatia_janela
-from comodulogram import _mi_de_bin_idx
 from pac_core.filtering import filtra_sinal, aplica_notch
+from pac_core.pac_metrics import (
+    _mi_de_bin_idx, fase_para_bin_idx, gera_deslocamentos,
+    mi_surrogates_de_deslocamentos, z_score_mi,
+)
 
 # Mesmos parâmetros do comodulogram.py / triagem_pac.py
 N_BINS = 18
@@ -107,27 +110,20 @@ def mi_z_par(lfp, fs, f_fase, f_amp, n_bins=N_BINS, n_surr=N_SURR, rng=None):
     """
     if rng is None:
         rng = np.random.default_rng(42)
-    bins = np.linspace(-np.pi, np.pi, n_bins + 1)
 
     lfp_fase = filtra_sinal(lfp, f_fase - 1.0, f_fase + 1.0, fs)
     fase = np.angle(signal.hilbert(lfp_fase))
-    bin_idx = np.clip(np.digitize(fase, bins) - 1, 0, n_bins - 1)
+    bin_idx = fase_para_bin_idx(fase, n_bins)
 
     lfp_amp = filtra_sinal(lfp, f_amp - 5.0, f_amp + 5.0, fs)
     env = np.abs(signal.hilbert(lfp_amp))
 
     mi_obs = _mi_de_bin_idx(bin_idx, env, n_bins)
 
-    n = lfp.size
-    shift_min = int(1.0 * fs)  # >= 1s de deslocamento, igual à nula do triagem
-    if n <= 2 * shift_min:
-        shift_min = max(1, n // 10)
-    deslocamentos = rng.integers(shift_min, n - shift_min, size=n_surr)
-    mi_surr = np.array([_mi_de_bin_idx(bin_idx, np.roll(env, d), n_bins)
-                        for d in deslocamentos])
+    deslocamentos = gera_deslocamentos(lfp.size, fs, n_surr=n_surr, rng=rng)
+    mi_surr = mi_surrogates_de_deslocamentos(bin_idx, env, deslocamentos, n_bins)
 
-    dp = mi_surr.std()
-    z = float((mi_obs - mi_surr.mean()) / dp) if dp > 0 else 0.0
+    z = float(z_score_mi(mi_obs, mi_surr))
     return z, float(mi_obs), env, bin_idx
 
 

@@ -28,9 +28,8 @@ from scipy.signal import welch
 
 BASE = r"C:\acoplamento_theta-gamma"
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-PIPELINE_DIR = os.path.join(SCRIPT_DIR, '..', 'pipeline')
-sys.path.append(PIPELINE_DIR)
-from ns2_utils import carrega_dados
+sys.path.append(os.path.join(SCRIPT_DIR, '..'))
+from pac_core.io import carrega_dados
 
 FS = 1000
 PRE_WINDOW = 10

@@ -11,8 +11,8 @@ import glob
 import sys
 
 # Adicionar pasta pipeline ao path para importar ns2_utils (SCRIPT/preditor/ -> SCRIPT/pipeline/)
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'pipeline'))
-from ns2_utils import carrega_dados
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+from pac_core.io import carrega_dados
 
 PRE_WINDOW = 10
 

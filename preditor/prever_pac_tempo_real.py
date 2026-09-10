@@ -28,12 +28,11 @@ import numpy as np
 import joblib
 from scipy.signal import welch
 
-# Resolução de caminhos: este script fica em SCRIPT/preditor/, e o ns2_utils
-# compartilhado fica em SCRIPT/pipeline/
+# Resolução de caminhos: este script fica em SCRIPT/preditor/, e pac_core
+# compartilhado fica em SCRIPT/
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-PIPELINE_DIR = os.path.join(SCRIPT_DIR, '..', 'pipeline')
-sys.path.append(PIPELINE_DIR)
-from ns2_utils import carrega_dados
+sys.path.append(os.path.join(SCRIPT_DIR, '..'))
+from pac_core.io import carrega_dados
 
 FS = 1000          # taxa de amostragem (Hz)
 JANELA_S = 10      # duração da janela (mesma do treinamento)

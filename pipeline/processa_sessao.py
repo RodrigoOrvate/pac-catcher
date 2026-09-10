@@ -1,9 +1,12 @@
 import os
+import sys
 import argparse
 import subprocess
 import numpy as np
 import pandas as pd
-from ns2_utils import carrega_dados
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from pac_core.io import carrega_dados
 
 # Os 3 pares reconhecidos por refina_candidatos.py/comodulogram.py.
 # processa_sessao.py precisa iterar sobre TODOS eles: comodulogram.py filtra
@@ -88,7 +91,7 @@ def processa_sessao(pasta_sessao, saida_base, notch=(60, 120, 180, 240),
         n_teta_hfo_total, n_teta_ripple_total = 0, 0
         for arq in arquivos_ns2:
             coocorrencia_csv = os.path.join(saida_canal, f"coocorrencia_{arq}.csv")
-            run(["python", "pipeline/triagem_coocorrencia.py",
+            run(["python", "pipeline/etapa1_triagem/triagem_coocorrencia.py",
                  "--origem", os.path.join(pasta_sessao, arq), "--canal", str(c),
                  "--saida", coocorrencia_csv], f"Estágio 1 - {arq} - chan{c+1}")
                  
@@ -119,12 +122,12 @@ def processa_sessao(pasta_sessao, saida_base, notch=(60, 120, 180, 240),
         triagem_csv = os.path.join(saida_canal, "triagem.csv")
         refinados_csv = os.path.join(saida_canal, "refinados.csv")
         
-        run(["python", "pipeline/triagem_pac.py",
+        run(["python", "pipeline/etapa1_triagem/triagem_pac.py",
              "--pasta", pasta_sessao, "--canal", str(c), 
              "--pares", *PARES,
              "--saida", triagem_csv], f"Estágio 2.1 - Triagem PAC - {nome_sessao} chan{c+1}")
              
-        run(["python", "pipeline/refina_candidatos.py",
+        run(["python", "pipeline/etapa2_refinamento/refina_candidatos.py",
              "--csv", triagem_csv, "--pasta_ns2", pasta_sessao, 
              "--saida", refinados_csv], f"Estágio 2.2 - Refina Candidatos - {nome_sessao} chan{c+1}")
              
@@ -138,7 +141,7 @@ def processa_sessao(pasta_sessao, saida_base, notch=(60, 120, 180, 240),
         resumos_comod = []
         for par in PARES:
             saida_dir_par = os.path.join(saida_canal, "comodulogramas", par)
-            run(["python", "pipeline/comodulogram.py",
+            run(["python", "pipeline/etapa3_comodulograma/comodulogram.py",
                  "--csv", refinados_csv, "--pasta_ns2", pasta_sessao,
                  "--canal", str(c), "--notch", *notch_str,
                  "--par", par, "--saida_dir", saida_dir_par,

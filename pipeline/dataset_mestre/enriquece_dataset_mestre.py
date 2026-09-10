@@ -48,13 +48,10 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 
 import pandas as pd
 
-DIR_PIPELINE = os.path.dirname(os.path.abspath(__file__))
-DIR_AUDITORIAS = os.path.join(DIR_PIPELINE, "auditorias")
-sys.path.insert(0, DIR_PIPELINE)
-sys.path.insert(0, DIR_AUDITORIAS)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from ns2_utils import carrega_dados, fatia_janela
-from utils_harmonico import extrai_cf_teta_fooof, extrai_cf_gamma_fooof
+from pac_core.io import carrega_dados, fatia_janela
+from pipeline.auditorias.utils_harmonico import extrai_cf_teta_fooof, extrai_cf_gamma_fooof
 
 CHAVE_JANELA = ["arquivo", "canal", "janela_ini_s", "janela_fim_s"]
 

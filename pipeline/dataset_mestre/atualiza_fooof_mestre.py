@@ -16,8 +16,12 @@ Carrega cada arquivo .ns2 apenas uma vez e processa em paralelo.
 """
 
 import argparse
+import os
+import sys
 
-from enriquece_dataset_mestre import etapa_fooof
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+from pipeline.dataset_mestre.enriquece_dataset_mestre import etapa_fooof
 
 import pandas as pd
 

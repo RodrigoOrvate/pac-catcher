@@ -15,8 +15,8 @@ import tempfile
 
 import numpy as np
 
-# garantir path do pipeline
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# garantir path da raiz do SCRIPT (para importar o pacote pipeline)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from pipeline.etapa0_exploracao.comodulogram_interativo import (
     BANDA_TETA, N_BINS, N_SURR, FDR_Q, LIMIAR_Z_EVENTO,
     time_series_pac, plota_psd_dupla, plota_sessao_3painel,

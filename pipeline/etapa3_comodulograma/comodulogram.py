@@ -45,10 +45,9 @@ from scipy import ndimage
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from ns2_utils import le_ns2, carrega_dados, fatia_janela
-from triagem_pac import BAND_PAIRS
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from pac_core.io import le_ns2, carrega_dados, fatia_janela
+from pipeline.etapa1_triagem.triagem_pac import BAND_PAIRS
 from pac_core.filtering import filtra_sinal, aplica_notch
 from pac_core.pac_metrics import (
     _mi_de_bin_idx, fase_para_bin_idx, gera_deslocamentos,

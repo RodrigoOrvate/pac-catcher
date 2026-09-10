@@ -42,10 +42,9 @@ import pandas as pd
 import scipy.signal as signal
 import scipy.stats as stats
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from ns2_utils import le_ns2, fatia_janela
-from triagem_pac import BAND_PAIRS, detecta_transiente, correlacao_gama_ruido
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from pac_core.io import le_ns2, fatia_janela
+from pipeline.etapa1_triagem.triagem_pac import BAND_PAIRS, detecta_transiente, correlacao_gama_ruido
 from pac_core.filtering import filtra_sinal
 from pac_core.pac_metrics import calcula_mi_com_surrogates, z_score_mi
 

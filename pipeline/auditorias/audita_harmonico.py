@@ -63,7 +63,7 @@ except Exception:
     pass
 
 from ns2_utils import carrega_dados, fatia_janela
-from audita_skewness import theta_skewness_for_window  # REUSO, nao duplicacao
+from audita_skewness import skewness_de_sinal  # REUSO, nao duplicacao
 from linha_noise_kuhn import aplica_modo  # REUSO: limpeza de linha Kuhn (60Hz)
 
 
@@ -187,7 +187,11 @@ def main():
             continue
 
         try:
-            skew, _ = theta_skewness_for_window(path, canal, ini, fim)
+            # sinal_cand ja e exatamente a mesma fatia que
+            # theta_skewness_for_window(path, canal, ini, fim) releria do
+            # zero (mesmo carrega_dados + mesmo fatiamento) -- reusar evita
+            # I/O redundante.
+            skew, _ = skewness_de_sinal(sinal_cand, fs)
         except Exception:
             skew = None
 

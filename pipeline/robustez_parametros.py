@@ -59,10 +59,14 @@ import scipy.signal as signal
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from comodulogram import (calcula_comodulograma_z,
-                          z_pico_par, _mi_de_bin_idx, FASES_DEFAULT, AMPS_DEFAULT)
+                          z_pico_par, FASES_DEFAULT, AMPS_DEFAULT)
 from ns2_utils import le_ns2, fatia_janela
 from triagem_pac import detecta_transiente, correlacao_gama_ruido
 from pac_core.filtering import filtra_sinal, aplica_notch
+from pac_core.pac_metrics import (
+    fase_para_bin_idx, _mi_de_bin_idx, gera_deslocamentos,
+    mi_surrogates_de_deslocamentos, z_score_mi,
+)
 
 N_BINS_SWEEP = [10, 12, 15, 18, 24, 30]
 MEIA_FAISES = [0.7, 1.0, 1.5, 2.5]
@@ -79,45 +83,31 @@ def mi_z_par(lfp, fs, f_fase, f_amp, n_bins=18, meia_fase=1.0, meia_amp=5.0,
              n_surr=N_SURR, rng=None):
     """z do KL-MI em um ÚNICO par (f_fase, f_amp) -- mesmos filtros e mesma
     nula de deslocamento circular do mapa do comodulogram.py."""
-    if rng is None:
-        rng = np.random.default_rng()
-    bins = np.linspace(-np.pi, np.pi, n_bins + 1)
     lfp_fase = filtra_sinal(lfp, f_fase - meia_fase, f_fase + meia_fase, fs)
-    bin_idx = np.clip(
-        np.digitize(np.angle(signal.hilbert(lfp_fase)), bins) - 1, 0, n_bins - 1)
+    bin_idx = fase_para_bin_idx(np.angle(signal.hilbert(lfp_fase)), n_bins)
     lfp_amp = filtra_sinal(lfp, f_amp - meia_amp, f_amp + meia_amp, fs)
     env = np.abs(signal.hilbert(lfp_amp))
 
-    n = lfp.size
-    shift_min = int(1.0 * fs)
-    if n <= 2 * shift_min:
-        shift_min = max(1, n // 10)
-    deslocamentos = rng.integers(shift_min, n - shift_min, size=n_surr)
+    deslocamentos = gera_deslocamentos(lfp.size, fs, n_surr=n_surr, rng=rng)
 
     mi_obs = _mi_de_bin_idx(bin_idx, env, n_bins)
-    mi_surr = np.array([_mi_de_bin_idx(bin_idx, np.roll(env, d), n_bins)
-                        for d in deslocamentos])
-    dp = mi_surr.std()
-    return (mi_obs - mi_surr.mean()) / dp if dp > 0 else 0.0
+    mi_surr = mi_surrogates_de_deslocamentos(bin_idx, env, deslocamentos, n_bins)
+    return z_score_mi(mi_obs, mi_surr)
 
 
 def mvl_z_par(lfp, fs, f_fase, f_amp, meia_fase=1.0, meia_amp=5.0,
               n_surr=N_SURR, rng=None):
     """z do MVL (Canolty et al. 2006): |média(envelope · e^{i·fase})|.
     Métrica ALTERNATIVA sem bins -- complementar ao KL-MI (que depende do
-    nº de bins de fase). Mesma nula de deslocamento circular do envelope."""
-    if rng is None:
-        rng = np.random.default_rng()
+    nº de bins de fase). Mesma nula de deslocamento circular do envelope
+    -- reusa só gera_deslocamentos() do núcleo (a nula é compartilhada,
+    a métrica MVL não é KL-MI e não migra para pac_core.pac_metrics)."""
     lfp_fase = filtra_sinal(lfp, f_fase - meia_fase, f_fase + meia_fase, fs)
     fase = np.angle(signal.hilbert(lfp_fase))
     lfp_amp = filtra_sinal(lfp, f_amp - meia_amp, f_amp + meia_amp, fs)
     env = np.abs(signal.hilbert(lfp_amp))
 
-    n = lfp.size
-    shift_min = int(1.0 * fs)
-    if n <= 2 * shift_min:
-        shift_min = max(1, n // 10)
-    deslocamentos = rng.integers(shift_min, n - shift_min, size=n_surr)
+    deslocamentos = gera_deslocamentos(lfp.size, fs, n_surr=n_surr, rng=rng)
 
     mvl_obs = np.abs(np.mean(env * np.exp(1j * fase)))
     mvl_surr = np.array([np.abs(np.mean(np.roll(env, d) * np.exp(1j * fase)))

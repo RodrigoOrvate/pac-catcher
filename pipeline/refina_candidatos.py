@@ -47,6 +47,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ns2_utils import le_ns2, fatia_janela
 from triagem_pac import BAND_PAIRS, detecta_transiente, correlacao_gama_ruido
 from pac_core.filtering import filtra_sinal
+from pac_core.pac_metrics import calcula_mi_com_surrogates, z_score_mi
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")
@@ -56,20 +57,9 @@ except Exception:
 
 # ==========================================
 # FUNÇÕES DE PROCESSAMENTO
-# filtra_sinal agora vem de pac_core.filtering (import no topo)
+# filtra_sinal / _mi_de_bin_idx (via calcula_mi_com_surrogates) agora vêm
+# de pac_core (import no topo).
 # ==========================================
-
-
-def _mi_de_bin_idx(bin_idx, envelope, n_bins):
-    soma_bins = np.bincount(bin_idx, weights=envelope, minlength=n_bins)
-    cont_bins = np.bincount(bin_idx, minlength=n_bins)
-    media_bins = np.divide(soma_bins, cont_bins, out=np.zeros(n_bins), where=cont_bins > 0)
-    soma = np.sum(media_bins)
-    if soma <= 0:
-        return 0.0
-    P = media_bins / soma
-    H = -np.sum(P * np.log(P + 1e-10))
-    return (np.log(n_bins) - H) / np.log(n_bins)
 
 
 def mi_com_surrogates_parametrico(fase, envelope, fs, n_surr=1000, n_bins=18,
@@ -79,27 +69,13 @@ def mi_com_surrogates_parametrico(fase, envelope, fs, n_surr=1000, n_bins=18,
     Gama à distribuição nula e devolve p-valor ANALÍTICO (maior resolução
     que empírico 1/n_surr) e z-score para comparabilidade.
     """
-    if rng is None:
-        rng = np.random.default_rng()
-
-    bins = np.linspace(-np.pi, np.pi, n_bins + 1)
-    bin_idx = np.clip(np.digitize(fase, bins) - 1, 0, n_bins - 1)
-    mi_obs = _mi_de_bin_idx(bin_idx, envelope, n_bins)
-
-    n = len(envelope)
-    shift_min = int(shift_min_s * fs)
-    if n <= 2 * shift_min:
-        shift_min = max(1, n // 10)
-
-    mi_surr = np.empty(n_surr)
-    deslocamentos = rng.integers(shift_min, n - shift_min, size=n_surr)
-    for i, desloc in enumerate(deslocamentos):
-        env_shift = np.roll(envelope, desloc)
-        mi_surr[i] = _mi_de_bin_idx(bin_idx, env_shift, n_bins)
+    mi_obs, mi_surr = calcula_mi_com_surrogates(
+        fase, envelope, fs, n_surr=n_surr, n_bins=n_bins,
+        shift_min_s=shift_min_s, rng=rng)
 
     media = np.mean(mi_surr)
     dp = np.std(mi_surr)
-    z = (mi_obs - media) / dp if dp > 0 else 0.0
+    z = z_score_mi(mi_obs, mi_surr)
 
     mi_surr_pos = mi_surr[mi_surr > 0]
     if len(mi_surr_pos) < 20 or mi_obs <= 0:

@@ -10,19 +10,25 @@ Rodar os comandos preferencialmente de dentro da pasta `SCRIPT/` ou apontando ca
 ```
 C:\acoplamento_theta-gamma\
 ├── SCRIPT\                          ← ESTA pasta (código central + pipeline/ + README + CLAUDE.md)
-│   ├── pipeline/                    ← Núcleo do pipeline PAC, comodulogramas e módulo comportamental
-│   │   ├── triagem_pac.py
-│   │   ├── refina_candidatos.py
-│   │   ├── comodulogram.py
-│   │   ├── robustez_parametros.py
-│   │   ├── figura_apresentacao.py
-│   │   ├── anotador_comportamento.py  ← GUI de anotação de vídeo sincronizada com janelas PAC
-│   │   ├── gerar_template_comportamento.py
-│   │   ├── junta_comportamento.py
-│   │   ├── ns2_utils.py              ← shim fino, reexporta de pac_core/io.py
-│   │   ├── agrega_resultados.py     ← constrói o dataset mestre (merge por canal)
-│   │   ├── enriquece_dataset_mestre.py  ← FOOOF v2 + portão de banda larga
-│   │   └── auditorias/              ← Validação e filtros de artefatos
+│   ├── pipeline/                    ← Núcleo do pipeline PAC (pacote Python, reorganizado em 2026-09
+│   │   │                               em pastas de etapa -- todo import interno é qualificado,
+│   │   │                               ex. `from pipeline.etapa1_triagem.triagem_pac import X`)
+│   │   ├── processa_sessao.py       ← orquestrador em lote (fica na raiz, não pertence a 1 etapa)
+│   │   ├── ns2_utils.py             ← shim fino, reexporta de pac_core/io.py (fica na raiz)
+│   │   ├── etapa0_exploracao/       ← exploracao_minuto.py, comodulogram_interativo.py
+│   │   ├── etapa1_triagem/          ← triagem_pac.py, triagem_pac_mat.py, triagem_coocorrencia.py,
+│   │   │                               deteccao_ripple.py, preprocessa_referencia_diferencial.py,
+│   │   │                               inspeciona_evento.py
+│   │   ├── etapa2_refinamento/      ← refina_candidatos.py
+│   │   ├── etapa3_comodulograma/    ← comodulogram.py
+│   │   ├── etapa7_validacao/        ← robustez_parametros.py, figura_apresentacao.py
+│   │   ├── dataset_mestre/          ← agrega_resultados.py, enriquece_dataset_mestre.py +
+│   │   │                               2 shims (atualiza_fooof_mestre, aplica_portao_banda_larga_mestre)
+│   │   ├── comportamento/           ← gerar_template_comportamento.py,
+│   │   │                               anotador_comportamento.py (GUI), junta_comportamento.py
+│   │   ├── utilitarios/             ← extrair_picos.py, plot_basal_results.py,
+│   │   │                               gerar_relatorio_pdf.py, gera_plot_fooof.py
+│   │   └── auditorias/              ← Validação e filtros de artefatos (não mudou de lugar)
 │   │       └── audita_janela.py     ← orquestrador forense (skew+transientes+footprint+harmônico)
 │   ├── pac_core/                    ← Núcleo matemático compartilhado (io/filtering/pac_metrics)
 │   ├── preditor/                    ← Previsão de PAC em tempo real / ML
@@ -46,7 +52,7 @@ Regra de ouro: **sessões têm dados e vídeos; a pasta SCRIPT tem o código.**
 
 ## Módulo Comportamental e Sincronização Vídeo ↔ LFP
 
-### 1. Ferramentas de Anotação (`SCRIPT/pipeline/`)
+### 1. Ferramentas de Anotação (`SCRIPT/pipeline/comportamento/`)
 - **`gerar_template_comportamento.py`**:
   Varre o dataset mestre e extrai uma lista deduplicada de janelas temporais de 10s onde houve detecção de PAC em qualquer canal. Evita redundância de ter que anotar a mesma janela várias vezes quando múltiplos canais cruzam o limiar. Gera `template_comportamento.csv`.
 - **`anotador_comportamento.py`**:
@@ -92,17 +98,18 @@ Extraído das cópias duplicadas que existiam em `triagem_pac.py`/`comodulogram.
 - **`filtering.py`**: `filtra_sinal` (Butterworth passa-faixa canônico, `order=3`) e `aplica_notch` (notch multi-harmônico). Variantes com `order`/clamp diferentes (`deteccao_ripple.py`, `audita_held_out.py`, `utils_harmonico.py::narrow_band`, etc.) foram deixadas **de propósito** fora daqui — unificá-las é decisão científica, não refatoração.
 - **`pac_metrics.py`**: `_mi_de_bin_idx`, `calcula_mi_com_surrogates`, `gera_deslocamentos`, `z_score_mi`/`z_score_mi_mapa`. `rng` é sempre parâmetro explícito (nunca semeado internamente por padrão) — cada consumidor decide sua própria política de reprodutibilidade. `audita_held_out.py` (métrica de MI diferente) e `mvl_z_par`/`mvl_bruto_e_rayleigh` (MVL de Canolty, não KL-MI) ficam de fora, documentado no próprio módulo.
 - Teste de paridade: `tests/test_pac_metrics_parity.py` (cópias congeladas + valores numéricos literais capturados antes da migração — qualquer mudança de comportamento no núcleo deve ser validada contra ele).
-- **Padrão de shim**: `pipeline/ns2_utils.py`, `pipeline/atualiza_fooof_mestre.py`, `pipeline/aplica_portao_banda_larga_mestre.py` são wrappers finos que preservam CLI/nome antigo mas delegam para `pac_core`/`enriquece_dataset_mestre.py` — não remover, scripts/hábitos antigos dependem deles continuarem funcionando. (`adapta_lfp_mat.py` foi removido em 2026-09 por não ter mais uso — `triagem_pac_mat.py` já lê `.mat` direto via `pac_core.io.le_mat`.)
+- **Padrão de shim**: `pipeline/ns2_utils.py` (raiz de `pipeline/`), `pipeline/dataset_mestre/atualiza_fooof_mestre.py`, `pipeline/dataset_mestre/aplica_portao_banda_larga_mestre.py` são wrappers finos que preservam CLI/nome antigo mas delegam para `pac_core`/`enriquece_dataset_mestre.py` — não remover, scripts/hábitos antigos dependem deles continuarem funcionando (`ns2_utils.py` especificamente é consumido por `notebooks/exploracao_interativo.ipynb` via `from pipeline.ns2_utils import concatena_sessao`). (`adapta_lfp_mat.py` foi removido em 2026-09 por não ter mais uso — `triagem_pac_mat.py` já lê `.mat` direto via `pac_core.io.le_mat`.)
+- **Padrão de import**: `pipeline/` e cada pasta de etapa têm `__init__.py` (pacote de verdade). Todo import interno, mesmo dentro da mesma pasta, é qualificado (`from pipeline.etapa1_triagem.triagem_pac import X`), nunca resolvido por `sys.path` "mágico" — mesmo padrão que `pac_core.*` já usava. Cada script só precisa de UM `sys.path.insert` (a raiz de `SCRIPT/`) no topo.
 
-### `SCRIPT/pipeline/`
-- **`triagem_pac.py`** / **`triagem_pac_mat.py`**: Varredura em janelas deslizantes (10s com passo 5s) calculando KL-MI e Z-score vs 200 surrogates para `theta_gamma` (30-80 Hz), `theta_hg` (80-150 Hz) e `theta_hfo` (150-250 Hz) — a versão `_mat` lê `.mat` de tetrodo/terceiros em vez de pasta `.ns2` (CLIs deliberadamente separadas, não fundidas — ver `pac_core/io.py`).
-- **`refina_candidatos.py`**: Refinamento paramétrico com distribuição Gama, correção FDR Benjamini-Hochberg, análise de coocorrência multicanal e kurtose na banda alta.
-- **`comodulogram.py`**: Mapas bidimensionais de calor (fase × amplitude) com filtros notch em 60 Hz e harmônicos (120, 180, 240 Hz). Hub histórico — vários módulos ainda importam `z_pico_par`/`calcula_comodulograma_z` daqui.
-- **`robustez_parametros.py`**: Varredura de estabilidade de parâmetros (variação de n_bins, filtros e métrica MVL).
-- **`figura_apresentacao.py`**: Plota STFT, polar plots e LFP bruto dos vencedores validados.
-- **`agrega_resultados.py`**: Constrói o dataset mestre bruto (merge de `refinados.csv` + `skewness.csv`/`resumo_comodulogramas.csv`/`harmonico*.csv` por canal, renomeia `veredito`→`veredito_refino`).
-- **`enriquece_dataset_mestre.py`**: Enriquece o dataset mestre com FOOOF v2 (etapa `fooof`) e o portão de banda larga (etapa `portao`) — não-destrutivo por padrão (`--in_place` p/ sobrescrever). Substitui a cadeia manual `atualiza_fooof_mestre.py` + `aplica_portao_banda_larga_mestre.py` (ambos viram shims).
-- **`gerar_relatorio_pdf.py`**: Compila relatório consolidado do estudo a partir de `vencedores_consolidado.csv`.
+### `SCRIPT/pipeline/` (reorganizado em pastas de etapa, 2026-09 — ver `scripts_explicados.md` para o histórico)
+- **`etapa1_triagem/triagem_pac.py`** / **`triagem_pac_mat.py`**: Varredura em janelas deslizantes (10s com passo 5s) calculando KL-MI e Z-score vs 200 surrogates para `theta_gamma` (30-80 Hz), `theta_hg` (80-150 Hz) e `theta_hfo` (150-250 Hz) — a versão `_mat` lê `.mat` de tetrodo/terceiros em vez de pasta `.ns2` (CLIs deliberadamente separadas, não fundidas — ver `pac_core/io.py`).
+- **`etapa2_refinamento/refina_candidatos.py`**: Refinamento paramétrico com distribuição Gama, correção FDR Benjamini-Hochberg, análise de coocorrência multicanal e kurtose na banda alta.
+- **`etapa3_comodulograma/comodulogram.py`**: Mapas bidimensionais de calor (fase × amplitude) com filtros notch em 60 Hz e harmônicos (120, 180, 240 Hz). Hub histórico — vários módulos ainda importam `z_pico_par`/`calcula_comodulograma_z` daqui.
+- **`etapa7_validacao/robustez_parametros.py`**: Varredura de estabilidade de parâmetros (variação de n_bins, filtros e métrica MVL).
+- **`etapa7_validacao/figura_apresentacao.py`**: Plota STFT, polar plots e LFP bruto dos vencedores validados.
+- **`dataset_mestre/agrega_resultados.py`**: Constrói o dataset mestre bruto (merge de `refinados.csv` + `skewness.csv`/`resumo_comodulogramas.csv`/`harmonico*.csv` por canal, renomeia `veredito`→`veredito_refino`).
+- **`dataset_mestre/enriquece_dataset_mestre.py`**: Enriquece o dataset mestre com FOOOF v2 (etapa `fooof`) e o portão de banda larga (etapa `portao`) — não-destrutivo por padrão (`--in_place` p/ sobrescrever). Substitui a cadeia manual `atualiza_fooof_mestre.py` + `aplica_portao_banda_larga_mestre.py` (ambos viram shims, também em `dataset_mestre/`).
+- **`utilitarios/gerar_relatorio_pdf.py`**: Compila relatório consolidado do estudo a partir de `vencedores_consolidado.csv`.
 
 ### `SCRIPT/pipeline/auditorias/`
 - **`audita_janela.py`**: Orquestrador forense — roda skewness + transientes + footprint + harmônico numa só passada para um canal/janela (cache de arquivo, deriva as 3 variantes de sinal que cada uma precisa). `audita_held_out.py`/`audita_segmentos.py`/`audita_harmonico_hfo.py` ficam de fora (pré-requisitos estruturais incompatíveis: janela reancorada, sub-segmentos manuais, CSV/fonte de dados distinta).

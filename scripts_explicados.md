@@ -45,6 +45,15 @@ test_pac_metrics_parity.py` é o gate permanente). Se você rodou o
 pipeline antes dessa data, não precisa rodar de novo — os CSVs já
 gerados continuam válidos.
 
+**Reorganização em pastas de etapa (2026-09, mesma rodada):** os nomes de
+script acima são os mesmos, mas os arquivos fisicos moveram para
+`pipeline/etapa<N>_<nome>/` (ver mapa completo e exemplos de CLI com
+caminho completo na seção "Estrutura Canônica" abaixo, ou em
+`README.md`). `pipeline/` e cada pasta de etapa viraram pacotes Python
+de verdade (`__init__.py`), e todo import interno é qualificado
+(`from pipeline.etapa1_triagem.triagem_pac import X`) em vez de
+resolvido por `sys.path` implícito. `auditorias/` não mudou de lugar.
+
 .........
 
 ## 1. `triagem_pac.py` — Varredura estatística (etapa 1)
@@ -75,7 +84,7 @@ mesmo candidato).
 
 **CLI principal:**
 ```bash
-python triagem_pac.py ......pasta "<sessao>/<BASAL>" \
+python pipeline/etapa1_triagem/triagem_pac.py ......pasta "<sessao>/<BASAL>" \
     ......saida "<sessao>/RESULTADOS/resultados.csv"
 # janela 10 s / passo 5 s / 200 surrogates / z_corte 3.0 (padrão)
 ```
@@ -128,7 +137,7 @@ default 2,0) e aplica filtros estatísticos mais rigorosos:
 
 **CLI:**
 ```bash
-python refina_candidatos.py ......csv resultados.csv \
+python pipeline/etapa2_refinamento/refina_candidatos.py ......csv resultados.csv \
     ......pasta_ns2 "<sessao>/<BASAL>" \
     ......saida "<sessao>/RESULTADOS/resultados_refinados.csv"
 # ......z_pre_filtro 2.0 ......n_surr 1000 ......fdr_q 0.05 (padrão)
@@ -228,7 +237,7 @@ desempate fino, o vídeo é o árbitro (etapa 4).
 
 **CLI:**
 ```bash
-python diagnostico_janela.py ......arquivo "<BASAL>/<arquivo>.ns2" \
+python pipeline/auditorias/diagnostico_janela.py ......arquivo "<BASAL>/<arquivo>.ns2" \
     ......canal chan20 ......inicio 85 ......fim 95 ......notch 60
 ```
 
@@ -268,7 +277,7 @@ rejeitar sozinho — lição registrada na sessão #1 (chan30, MVL 1,9).
 
 **CLI:**
 ```bash
-python robustez_parametros.py ......pasta "<sessao>/<BASAL>" \
+python pipeline/etapa7_validacao/robustez_parametros.py ......pasta "<sessao>/<BASAL>" \
     ......vencedores "<sessao>/vencedores.csv" \
     ......resumo_fdr "<sessao>/RESULTADOS/comodulogramas_fdr/resumo_comodulogramas.csv" \
     ......saida_csv "<sessao>/RESULTADOS/robustez_parametros.csv"
@@ -303,7 +312,7 @@ vencedor — garante consistência visual com os números da robustez.
 
 **CLI:**
 ```bash
-python figura_apresentacao.py ......pasta_ns2 "<sessao>/<BASAL>" \
+python pipeline/etapa7_validacao/figura_apresentacao.py ......pasta_ns2 "<sessao>/<BASAL>" \
     ......vencedores "<sessao>/vencedores.csv" \
     ......saida_dir "<sessao>/RESULTADOS/figuras"
 ```
@@ -447,7 +456,7 @@ histograma de fase) para um sinal já em memória — é o que
 **CLI (sessão 08/07 default):** `python audita_transientes.py`
 **Nova sessão (via CLI, casos nunca no código):**
 ```bash
-python audita_transientes.py ......pasta_ns2 "<sessao>/<BASAL>" \
+python pipeline/auditorias/audita_transientes.py ......pasta_ns2 "<sessao>/<BASAL>" \
     ......saida_dir "<sessao>/RESULTADOS/auditoria" \
     ......casos "rotulo1,arq1,chan1,ini1,fim1,fp1,fa1;rotulo2,..." \
     ......vizinhos "chan24:z,chan26:z,..."
@@ -465,7 +474,7 @@ pico original e o pico ΘΓ do próprio segmento.
 **Uso (default sessão 08/07):** `python audita_segmentos.py`
 **Nova sessão:**
 ```bash
-python audita_segmentos.py ......pasta "<sessao>/<BASAL>" \
+python pipeline/auditorias/audita_segmentos.py ......pasta "<sessao>/<BASAL>" \
     ......arquivo <arq>.ns2 ......canal chanXX \
     ......segmentos "ini1...fim1,ini2...fim2,..." ......fp F ......fa A
 ```
@@ -522,7 +531,7 @@ python audita_segmentos.py ......pasta "<sessao>/<BASAL>" \
 
 **CLI (congelada — `processa_sessao.py` chama este script em produção via subprocess, não mudar nome de flag nem coluna de saída):**
 ```bash
-python audita_harmonico.py --csv "<sessao>/RESULTADOS/vencedores.csv"     --pasta_ns2 "<sessao>/<BASAL>"     --saida "<sessao>/RESULTADOS/harmonico.csv"     --janela_contexto_s 45 --modo_preprocesso hibrido --f_linha 60.0
+python pipeline/auditorias/audita_harmonico.py --csv "<sessao>/RESULTADOS/vencedores.csv"     --pasta_ns2 "<sessao>/<BASAL>"     --saida "<sessao>/RESULTADOS/harmonico.csv"     --janela_contexto_s 45 --modo_preprocesso hibrido --f_linha 60.0
 ```
 
 ---
@@ -569,7 +578,7 @@ Para correlacionar os episódios de acoplamento detectados com o comportamento r
 
 **CLI (congelada — `processa_sessao.py` chama este script em produção via subprocess):**
 ```bash
-python audita_skewness.py --csv "<sessao>/RESULTADOS/vencedores.csv" \
+python pipeline/auditorias/audita_skewness.py --csv "<sessao>/RESULTADOS/vencedores.csv" \
     --pasta_ns2 "<sessao>/<BASAL>" --saida "<sessao>/RESULTADOS/skewness.csv" --limiar 0.5
 ```
 
@@ -595,11 +604,11 @@ python audita_skewness.py --csv "<sessao>/RESULTADOS/vencedores.csv" \
 **CLI:**
 ```bash
 # janela única
-python audita_janela.py --pasta_ns2 "<sessao>/<BASAL>" \
+python pipeline/auditorias/audita_janela.py --pasta_ns2 "<sessao>/<BASAL>" \
     --arquivo <arquivo>.ns2 --canal chan22 --inicio 20 --fim 30 --fp 5 --fa 35
 
 # modo lote, reaproveitando vencedores.csv
-python audita_janela.py --pasta_ns2 "<sessao>/<BASAL>" --csv "<sessao>/RESULTADOS/vencedores.csv"
+python pipeline/auditorias/audita_janela.py --pasta_ns2 "<sessao>/<BASAL>" --csv "<sessao>/RESULTADOS/vencedores.csv"
 ```
 
 **Saída:** `auditoria_janela.csv` (1 linha por caso, colunas prefixadas `skew_*`/`trans_*`/`ctx_*`/`foot_*`/`harm_*` + `veredito_consolidado`/`motivos`) e `auditoria_janela_footprint.csv` (long format, `caso,canal,z`).
@@ -627,11 +636,11 @@ Cadeia de consolidação do dataset mestre (antes disso não estava documentada 
 ```bash
 # 1. Constrói o dataset mestre bruto: merge de refinados.csv + skewness/comodulograma/harmônico(_hfo)
 #    por canal (renomeia veredito→veredito_refino, adiciona sessao/condicao/canal)
-python pipeline/agrega_resultados.py --resultados "<sessao>/RESULTADOS" --saida dataset_mestre.csv
+python pipeline/dataset_mestre/agrega_resultados.py --resultados "<sessao>/RESULTADOS" --saida dataset_mestre.csv
 
 # 2. Enriquece: FOOOF v2 (aperiodic_mode='knee', ajuste particionado 2-45Hz teta / 35-250Hz gama)
 #    + portão de banda larga (rebaixa "Candidato robusto" com suspeito_banda_larga=True)
-python pipeline/enriquece_dataset_mestre.py --entrada dataset_mestre.csv --saida dataset_mestre_v2.csv
+python pipeline/dataset_mestre/enriquece_dataset_mestre.py --entrada dataset_mestre.csv --saida dataset_mestre_v2.csv
 ```
 As duas etapas do passo 2 (`--etapas fooof portao`, ambas por padrão) são independentes — `portao` só usa colunas que já vêm do passo 1, nenhuma delas é criada pelo `fooof`. Não-destrutivo por padrão; `--in_place` sobrescreve a entrada (comportamento do antigo `aplica_portao_banda_larga_mestre.py`). Guarda contra reenriquecer: se as 14 colunas FOOOF v2 já existirem, aborta com erro claro a menos que `--forca` seja passado (evita colunas `_x`/`_y` duplicadas silenciosas do `pandas.merge`).
 
@@ -667,10 +676,10 @@ As duas etapas do passo 2 (`--etapas fooof portao`, ambas por padrão) são inde
 
 ```bash
 # .mat direto (sem .ns2):
-python pipeline/triagem_pac_mat.py --mat DADOS_EXEMPLO_LFP_HG_HFO/LFP_HG_HFO.mat
+python pipeline/etapa1_triagem/triagem_pac_mat.py --mat DADOS_EXEMPLO_LFP_HG_HFO/LFP_HG_HFO.mat
 
 # .ns2 multi-par:
-python pipeline/triagem_pac.py --pasta <sessao>/BASAL     --pares theta_gamma theta_hg theta_hfo     --saida <sessao>/RESULTADOS/resultados_triplo.csv
+python pipeline/etapa1_triagem/triagem_pac.py --pasta <sessao>/BASAL     --pares theta_gamma theta_hg theta_hfo     --saida <sessao>/RESULTADOS/resultados_triplo.csv
 ```
 
 ### Resultado validado no LFP_HG_HFO.mat (2026-09-05)

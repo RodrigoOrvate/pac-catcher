@@ -29,7 +29,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np
 
 from ns2_utils import le_ns2, fatia_janela
-from comodulogram import aplica_notch, calcula_comodulograma_z, z_pico_theta_gamma
+from comodulogram import aplica_notch, calcula_comodulograma_z, z_pico_par
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")
@@ -75,7 +75,7 @@ def main():
         i_fp = int(np.argmin(np.abs(fases_freq - args.fp)))
         j_ap = int(np.argmin(np.abs(amps_freq - args.fa)))
         z_celula = float(z_mapa[j_ap, i_fp])
-        z_pico, f_pico, a_pico = z_pico_theta_gamma(z_mapa, fases_freq, amps_freq)
+        z_pico, f_pico, a_pico = z_pico_par(z_mapa, fases_freq, amps_freq)
         print(f"  {ini:5g}-{fim:<5g} ({fim - ini:.0f}s): z({args.fp}x{args.fa})={z_celula:6.2f} | "
               f"pico TG do segmento: z={z_pico:5.2f} @ {f_pico:g}x{a_pico:g} Hz | "
               f"MI na celula={mi_obs[j_ap, i_fp]:.4f}")

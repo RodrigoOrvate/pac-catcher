@@ -40,7 +40,7 @@ O código é unificado e vive na pasta raiz (`SCRIPT/`). Abaixo, o mapa de ferra
 
 - **`pipeline/`**: O núcleo duro do PAC Catcher, organizado em pastas de etapa (reorganização 2026-09 — ver `scripts_explicados.md` para detalhes da refatoração e a convenção de import qualificado usada):
   - **`processa_sessao.py`** e **`ns2_utils.py`** ficam na raiz de `pipeline/` (orquestrador principal e shim de I/O, não pertencem a uma etapa específica).
-  - **`etapa0_exploracao/`**: `exploracao_minuto.py`, `comodulogram_interativo.py` — navegação visual e inspeção prévia dos dados antes da triagem cega.
+  - **`etapa8_exploracao/`**: `exploracao_minuto.py`, `comodulogram_interativo.py` — exploração visual, timeline e dissecação interativa com FOOOF dos eventos campeões.
   - **`etapa1_triagem/`** (Passo 1 + 0.5): `triagem_pac.py` / `triagem_pac_mat.py` (varredura inicial `.ns2`/`.mat` em busca de Teta-Gama, Teta-HG, Teta-HFO), `triagem_coocorrencia.py` (Passo 0.5, resolução amostral HFO/Ripple), `deteccao_ripple.py`, `preprocessa_referencia_diferencial.py`, `inspeciona_evento.py`.
   - **`etapa2_refinamento/`**: `refina_candidatos.py` — p-valor paramétrico (Gama), FDR de Benjamini-Hochberg, filtros de kurtose.
   - **`etapa3_comodulograma/`**: `comodulogram.py` — mapas de calor 2D (fase x amplitude) com filtros notch.
@@ -76,7 +76,7 @@ pip install -r requirements.txt
 Antes de rodar a varredura cega, você pode navegar pelo sinal bruto, STFT e PSD concatenado de toda a sessão para identificar visualmente eventos de interesse.
 ```bash
 # Executado via Jupyter Notebook ou interface interativa
-python pipeline/etapa0_exploracao/exploracao_minuto.py ...
+python pipeline/etapa8_exploracao/exploracao_minuto.py ...
 ```
 
 ---

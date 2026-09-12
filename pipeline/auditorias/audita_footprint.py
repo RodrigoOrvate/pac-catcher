@@ -11,6 +11,25 @@ muitos canais distantes. É a ferramenta certa para decidir se um "cluster"
 de canais de mesmo pico é UM evento co-detectado (pegada similiar, mesma
 fonte) ou fontes distintas.
 
+LIMITAÇÃO CONHECIDA (2026-09): essa lógica pressupõe que dá pra separar
+"poucos canais vizinhos" de "muitos canais distantes" -- mas o projeto não
+tem, em lugar nenhum, um mapa de geometria/adjacência física dos 32 canais
+(nenhum .cmp, planilha de posição de eletrodo, ou datasheet do array em
+LAC_NOCI; o cabeçalho do .ns2 só traz o NOME do canal via
+pac_core.io.le_ns2, não posição). Sem isso, `n_z_ge_3`/a fração de canais
+coativos é só uma contagem "quantos, não importa onde" -- não dá pra saber
+se os canais coativos são vizinhos fisicamente (esperado, real, teta é
+amplamente coerente no hipocampo) ou espalhados pelo array inteiro
+(suspeito de artefato). Por isso essa métrica NÃO deve virar um corte de
+exclusão automático sem essa informação (ver histórico: um corte baseado só
+na contagem, sem geometria, foi aplicado e depois revertido por rotular
+"footprint amplo" como artefato sem base para essa causalidade -- auditoria
+com o usuário, 2026-09). Hoje ela é usada só como coluna informativa nos
+CSVs de vencedores (`footprint_n_z_ge3`/`footprint_frac_z_ge3`), nunca como
+filtro. Precisa de um mapa real de posição/adjacência dos eletrodos (do
+fabricante do array ou da nota de cirurgia do implante) pra virar um corte
+de verdade.
+
 Refactor de audita_footprint.py (lógica preservada) → por CLI (regra de ouro:
 nada de sessão no código). Formato de --casos:
     "rotulo,arquivo,ini,fim,fp,fa" separados por ';'.

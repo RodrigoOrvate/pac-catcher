@@ -296,7 +296,7 @@ def ajusta_fooof_teta_gamma(sinal_ctx, fs, modo_preprocesso=FOOOF_MODO_PREPROCES
     return freqs_t, psd_t_bruto, fm_teta, freqs_g, psd_g_bruto, fm_gamma
 
 
-def _painel_fooof(ax, fm, cor_ap, cor_flat, cor_pico, faixa_pico, rotulo, fit_range):
+def painel_fooof(ax, fm, cor_ap, cor_flat, cor_pico, faixa_pico, rotulo, fit_range):
     """Um painel: PSD real, fundo aperiódico (knee) e curva achatada com
     picos marcados na faixa de interesse. Subtração em log10 (fm já opera
     em log-potência) -- ver memória do projeto "fooof-log10-subtraction".
@@ -404,13 +404,13 @@ def plota_zoom_fooof_comodulograma(sinal_ctx, fs, z_mapa_plot, fases_freq, amps_
         ax1.grid(alpha=0.3, linestyle=":")
 
         # --- painel B: FOOOF teta -------------------------------------------
-        _painel_fooof(ax2, fm_teta, cor_ap="#2980b9", cor_flat="#27ae60",
+        painel_fooof(ax2, fm_teta, cor_ap="#2980b9", cor_flat="#27ae60",
                      cor_pico="#e74c3c", faixa_pico=(4.0, 12.0), rotulo="Teta",
                      fit_range=FOOOF_TETA_FIT_RANGE)
 
         # --- painel C: FOOOF gama/HG -----------------------------------------
         fit_range_gamma = (35.0, min(250.0, fs * 0.5 * 0.95))
-        _painel_fooof(ax3, fm_gamma, cor_ap="#8e44ad", cor_flat="#e67e22",
+        painel_fooof(ax3, fm_gamma, cor_ap="#8e44ad", cor_flat="#e67e22",
                      cor_pico="#d35400", faixa_pico=fit_range_gamma, rotulo="Gama/HG",
                      fit_range=fit_range_gamma)
 

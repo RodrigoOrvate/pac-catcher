@@ -276,7 +276,8 @@ class AnotadorApp(tk.Tk):
         """Cria um backup timestamped para segurança dos dados originais."""
         try:
             ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            backup_dir = os.path.join(os.path.dirname(self.csv_path), "backups_comportamento")
+            # Salva sempre na pasta backups_comportamento dentro do modulo de comportamento
+            backup_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "backups_comportamento")
             os.makedirs(backup_dir, exist_ok=True)
             backup_path = os.path.join(backup_dir, f"backup_template_{ts}.csv")
             shutil.copy2(self.csv_path, backup_path)

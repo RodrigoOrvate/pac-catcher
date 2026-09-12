@@ -15,13 +15,16 @@ C:\acoplamento_theta-gamma\
 │   │   │                               ex. `from pipeline.etapa1_triagem.triagem_pac import X`)
 │   │   ├── processa_sessao.py       ← orquestrador em lote (fica na raiz, não pertence a 1 etapa)
 │   │   ├── ns2_utils.py             ← shim fino, reexporta de pac_core/io.py (fica na raiz)
-│   │   ├── etapa0_exploracao/       ← exploracao_minuto.py, comodulogram_interativo.py
 │   │   ├── etapa1_triagem/          ← triagem_pac.py, triagem_pac_mat.py, triagem_coocorrencia.py,
 │   │   │                               deteccao_ripple.py, preprocessa_referencia_diferencial.py,
 │   │   │                               inspeciona_evento.py
 │   │   ├── etapa2_refinamento/      ← refina_candidatos.py
 │   │   ├── etapa3_comodulograma/    ← comodulogram.py
 │   │   ├── etapa7_validacao/        ← robustez_parametros.py, figura_apresentacao.py
+│   │   ├── etapa8_exploracao/       ← exploracao_minuto.py, comodulogram_interativo.py -- renomeada
+│   │   │                               de etapa0_exploracao em 2026-09 (era pré-triagem "às cegas";
+│   │   │                               agora é dissecação pós-curadoria dos vencedores consolidados,
+│   │   │                               com zoom FOOOF+comodulograma integrado)
 │   │   ├── dataset_mestre/          ← agrega_resultados.py, enriquece_dataset_mestre.py +
 │   │   │                               2 shims (atualiza_fooof_mestre, aplica_portao_banda_larga_mestre)
 │   │   ├── comportamento/           ← gerar_template_comportamento.py,

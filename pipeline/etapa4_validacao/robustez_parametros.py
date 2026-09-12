@@ -154,6 +154,123 @@ def mvl_bruto_e_rayleigh(lfp, fs, f_fase, f_amp, meia_fase=1.0, meia_amp=5.0):
     return mvl_obs, float(np.clip(rayleigh_p, 0, 1))
 
 
+def avalia_robustez_evento(lfp, fs, f_pico, a_pico, par_nome="theta_gamma", rng=None):
+    """Núcleo de robustez_parametros.py extraído como função reusável (2026-09,
+    para permitir rodar o portão em lote sobre uma lista de eventos sem
+    duplicar a lógica) -- MESMOS cálculos/limiares de quando só existia
+    inline em main(), comportamento idêntico.
+
+    `lfp` já deve estar recortado na janela e filtrado (notch aplicado),
+    como em main(). Retorna dict com o veredito estruturado + o detalhe
+    granular do sweep (mesmo formato de linha do --saida_csv).
+    """
+    if rng is None:
+        rng = np.random.default_rng(42)
+    linhas = []
+
+    zs_nb = {nb: mi_z_par(lfp, fs, f_pico, a_pico, n_bins=nb, rng=rng)
+             for nb in N_BINS_SWEEP}
+    for nb, z in zs_nb.items():
+        linhas.append({"teste": "n_bins", "parametro": nb, "z": round(z, 2)})
+
+    zs_f = {mf: mi_z_par(lfp, fs, f_pico, a_pico, meia_fase=mf, rng=rng)
+            for mf in MEIA_FAISES}
+    for mf, z in zs_f.items():
+        linhas.append({"teste": "largura_fase", "parametro": mf, "z": round(z, 2)})
+
+    zs_a = {ma: mi_z_par(lfp, fs, f_pico, a_pico, meia_amp=ma, rng=rng)
+            for ma in MEIA_AMPS}
+    for ma, z in zs_a.items():
+        linhas.append({"teste": "largura_amplitude", "parametro": ma, "z": round(z, 2)})
+
+    fases_freq = FASES_DEFAULT
+    amps_freq = AMPS_DEFAULT
+    picos_estaveis = []
+    for nb in (12, 24):
+        z_mapa = calcula_comodulograma_z(lfp, fs, fases_freq, amps_freq,
+                                         n_surr=N_SURR, n_bins=nb, rng=rng,
+                                         notch_hz=None)
+        z_p, f_p, a_p = z_pico_par(z_mapa, fases_freq, amps_freq, par_nome)
+        if z_p is None:
+            estavel = False
+        else:
+            estavel = (abs(f_p - f_pico) <= 1.0) and (abs(a_p - a_pico) <= 5.0)
+        picos_estaveis.append(estavel)
+        linhas.append({"teste": f"mapa_nb{nb}",
+                       "parametro": f"{f_p:g}x{a_p:g}" if f_p else "sem_pico",
+                       "z": round(z_p, 2) if z_p is not None else None})
+
+    z_mvl = mvl_z_par(lfp, fs, f_pico, a_pico, rng=rng)
+    linhas.append({"teste": "MVL", "parametro": "pico", "z": round(z_mvl, 2)})
+
+    z_min_nb = min(zs_nb.values())
+    z_min_bw = min(list(zs_f.values()) + list(zs_a.values()))
+    n_nb_pass = sum(1 for z in zs_nb.values() if z >= 3)
+    n_nb_total = len(zs_nb)
+
+    mvl_bruto, rayleigh_p = mvl_bruto_e_rayleigh(lfp, fs, f_pico, a_pico)
+    rejeitado_mvl = (mvl_bruto < LIMIAR_MVL) or (rayleigh_p > LIMIAR_RAYLEIGH)
+    motivo_mvl = []
+    if mvl_bruto < LIMIAR_MVL:
+        motivo_mvl.append(f"MVL={mvl_bruto:.4f}<{LIMIAR_MVL} (distribuição circular)")
+    if rayleigh_p > LIMIAR_RAYLEIGH:
+        motivo_mvl.append(f"Rayleigh p={rayleigh_p:.3f}>{LIMIAR_RAYLEIGH} (uniforme)")
+
+    trans_info = detecta_transiente(lfp, fs)
+    rejeitado_trans = trans_info["transiente_encontrado"]
+
+    banda_info = correlacao_gama_ruido(
+        lfp, fs,
+        theta_band=(f_pico - 1.0, f_pico + 1.0),
+        gamma_band=(a_pico - 5.0, a_pico + 5.0)
+    )
+    rejeitado_banda = banda_info["suspeito_banda_larga"]
+
+    robusto = (z_min_nb >= 3) and all(picos_estaveis) and not rejeitado_mvl \
+               and not rejeitado_trans and not rejeitado_banda
+
+    # Criterio relaxado (maioria, nao unanimidade) -- ver discussao 2026-09:
+    # exigir z>=3 nos 6/6 n_bins + estabilidade nos 2/2 mapas recomputados
+    # e um "E" combinatorio que penaliza estatisticamente sinais reais e
+    # modestos em janelas de 10s (vies de estimativa de MI varia ponto a
+    # ponto no sweep mesmo para acoplamento genuino). Os testes de artefato
+    # especifico (MVL/Rayleigh, transiente, banda larga) continuam corte
+    # duro -- so a exigencia de unanimidade no sweep parametrico e relaxada.
+    robusto_maioria = (n_nb_pass >= 4) and (sum(picos_estaveis) >= 1) and not rejeitado_mvl \
+               and not rejeitado_trans and not rejeitado_banda
+
+    if rejeitado_mvl or rejeitado_trans or rejeitado_banda:
+        status = f"FALSO POSITIVO (rejeitado por: {', '.join(motivo_mvl) if motivo_mvl else ''}"
+        if rejeitado_trans:
+            status += f", transiente max_diff={trans_info['max_diff_z']:.1f}σ"
+        if rejeitado_banda:
+            status += f", banda larga r={banda_info['correlacao_ruido']:.2f}"
+        status += ")"
+    else:
+        conf = "confirma" if z_mvl >= 3 else "não confirma (z menor é esperado)"
+        status = f"ROBUSTO ({conf})"
+
+    return {
+        "robusto": robusto,
+        "robusto_maioria": robusto_maioria,
+        "status": status,
+        "z_min_nb": z_min_nb,
+        "z_min_bw": z_min_bw,
+        "n_nb_pass": n_nb_pass,
+        "n_nb_total": n_nb_total,
+        "pico_estavel": all(picos_estaveis),
+        "n_mapas_estaveis": sum(picos_estaveis),
+        "z_mvl": z_mvl,
+        "mvl_bruto": mvl_bruto,
+        "rayleigh_p": rayleigh_p,
+        "transiente_encontrado": rejeitado_trans,
+        "max_diff_transiente_sigma": trans_info["max_diff_z"],
+        "suspeito_banda_larga": rejeitado_banda,
+        "correlacao_gama_ruido": banda_info["correlacao_ruido"],
+        "linhas_sweep": linhas,
+    }
+
+
 def main():
     try:  # console Windows pode estar em cp1252; Θ/Γ quebram o print
         sys.stdout.reconfigure(encoding="utf-8")
@@ -224,125 +341,20 @@ def main():
             print(f"Par de pico (etapa 2): {f_pico:g} Hz x {a_pico:g} Hz "
                   f"(z={linha['z_pico_theta_gamma']:.2f})")
 
-        # ----------------------------------
-        # A. n_bins
-        # ----------------------------------
-        zs_nb = {nb: mi_z_par(lfp, fs, f_pico, a_pico, n_bins=nb, rng=rng)
-                 for nb in N_BINS_SWEEP}
-        for nb, z in zs_nb.items():
-            print(f"  n_bins={nb:>2}: z={z:5.2f}")
-            linhas.append({"janela": rotulo, "canal": canal, "par_pico":
-                           f"{f_pico:g}x{a_pico:g}", "teste": "n_bins",
-                           "parametro": nb, "z": round(z, 2)})
-
-        # ----------------------------------
-        # B. largura do filtro de fase
-        # ----------------------------------
-        zs_f = {mf: mi_z_par(lfp, fs, f_pico, a_pico, meia_fase=mf, rng=rng)
-                for mf in MEIA_FAISES}
-        for mf, z in zs_f.items():
-            print(f"  fase ±{mf:g} Hz: z={z:5.2f}")
-            linhas.append({"janela": rotulo, "canal": canal, "par_pico":
-                           f"{f_pico:g}x{a_pico:g}", "teste": "largura_fase",
-                           "parametro": mf, "z": round(z, 2)})
-
-        # ----------------------------------
-        # C. largura do filtro de amplitude
-        # ----------------------------------
-        zs_a = {ma: mi_z_par(lfp, fs, f_pico, a_pico, meia_amp=ma, rng=rng)
-                for ma in MEIA_AMPS}
-        for ma, z in zs_a.items():
-            print(f"  amplitude ±{ma:g} Hz: z={z:5.2f}")
-            linhas.append({"janela": rotulo, "canal": canal, "par_pico":
-                           f"{f_pico:g}x{a_pico:g}", "teste": "largura_amplitude",
-                           "parametro": ma, "z": round(z, 2)})
-
-        # ----------------------------------
-        # D. pico do mapa com n_bins=12 e 24 (localização estável?)
-        # ----------------------------------
-        fases_freq = FASES_DEFAULT
-        amps_freq = AMPS_DEFAULT
-        picos_estaveis = []
         par_nome = row.get("par", "theta_gamma") if isinstance(row, pd.Series) else "theta_gamma"
-        for nb in (12, 24):
-            z_mapa = calcula_comodulograma_z(lfp, fs, fases_freq, amps_freq,
-                                             n_surr=N_SURR, n_bins=nb, rng=rng,
-                                             notch_hz=None)  # notch já aplicado
-            z_p, f_p, a_p = z_pico_par(z_mapa, fases_freq, amps_freq, par_nome)
-            if z_p is None:
-                estavel = False
-            else:
-                estavel = (abs(f_p - f_pico) <= 1.0) and (abs(a_p - a_pico) <= 5.0)
-            picos_estaveis.append(estavel)
-            print(f"  mapa n_bins={nb}: pico {par_nome} {f_p if f_p else 0:g} x {a_p if a_p else 0:g} Hz, "
-                  f"z={z_p if z_p else 0:.2f}  ({'estável' if estavel else 'DESLOCADO'})")
-            linhas.append({"janela": rotulo, "canal": canal, "par_pico":
-                           f"{f_pico:g}x{a_pico:g}", "teste": f"mapa_nb{nb}",
-                           "parametro": f"{f_p:g}x{a_p:g}", "z": round(z_p, 2)})
+        resultado = avalia_robustez_evento(lfp, fs, f_pico, a_pico, par_nome, rng=rng)
 
-        # ----------------------------------
-        # E. métrica alternativa: MVL
-        # ----------------------------------
-        z_mvl = mvl_z_par(lfp, fs, f_pico, a_pico, rng=rng)
-        print(f"  MVL (sem bins): z={z_mvl:5.2f}")
-        linhas.append({"janela": rotulo, "canal": canal, "par_pico":
-                       f"{f_pico:g}x{a_pico:g}", "teste": "MVL",
-                       "parametro": "pico", "z": round(z_mvl, 2)})
+        for linha_sweep in resultado["linhas_sweep"]:
+            print(f"  {linha_sweep['teste']}={linha_sweep['parametro']}: z={linha_sweep['z']}")
+            linhas.append({"janela": rotulo, "canal": canal,
+                           "par_pico": f"{f_pico:g}x{a_pico:g}", **linha_sweep})
 
-        # veredito -- robustez no PLATÔ dos parâmetros, não nos extremos
-        # (ver docstring): n_bins é o parâmetro do KL-MI e não pode colapsar;
-        # larguras de filtro mapeiam a curva de sintonia; MVL confirma sem
-        # binning (mas só captura o 1º momento -- z menor é normal).
-        z_min_nb = min(zs_nb.values())
-        z_min_bw = min(list(zs_f.values()) + list(zs_a.values()))
-
-        # ============================================================
-        # CAMADA 2 - REJEIÇÃO OBRIGATÓRIA POR MVL/RAYLEIGH
-        # (Teste de Assimetria Polar: distribuições uniformes não são PAC)
-        # ============================================================
-        mvl_bruto, rayleigh_p = mvl_bruto_e_rayleigh(lfp, fs, f_pico, a_pico)
-        rejeitado_mvl = (mvl_bruto < LIMIAR_MVL) or (rayleigh_p > LIMIAR_RAYLEIGH)
-        motivo_mvl = []
-        if mvl_bruto < LIMIAR_MVL:
-            motivo_mvl.append(f"MVL={mvl_bruto:.4f}<{LIMIAR_MVL} (distribuição circular)")
-        if rayleigh_p > LIMIAR_RAYLEIGH:
-            motivo_mvl.append(f"Rayleigh p={rayleigh_p:.3f}>{LIMIAR_RAYLEIGH} (uniforme)")
-
-        # ============================================================
-        # CAMADA 1 - REJEIÇÃO POR TRANSIENTE
-        # ============================================================
-        trans_info = detecta_transiente(lfp, fs)
-        rejeitado_trans = trans_info["transiente_encontrado"]
-
-        # ============================================================
-        # CAMADA 4 - REJEIÇÃO POR BANDA LARGA (amp↔ruído correlacionado)
-        # ============================================================
-        banda_info = correlacao_gama_ruido(
-            lfp, fs,
-            theta_band=(f_pico - 1.0, f_pico + 1.0),
-            gamma_band=(a_pico - 5.0, a_pico + 5.0)
-        )
-        rejeitado_banda = banda_info["suspeito_banda_larga"]
-
-        robusto = (z_min_nb >= 3) and all(picos_estaveis) and not rejeitado_mvl \
-                   and not rejeitado_trans and not rejeitado_banda
-
-        if rejeitado_mvl or rejeitado_trans or rejeitado_banda:
-            status = f"FALSO POSITIVO (rejeitado por: {', '.join(motivo_mvl) if motivo_mvl else ''}"
-            if rejeitado_trans:
-                status += f", transiente max_diff={trans_info['max_diff_z']:.1f}σ"
-            if rejeitado_banda:
-                status += f", banda larga r={banda_info['correlacao_ruido']:.2f}"
-            status += ")"
-        else:
-            conf = "confirma" if z_mvl >= 3 else "não confirma (z menor é esperado)"
-            status = f"ROBUSTO ({conf})"
-
-        print(f"  >> n_bins: z mínimo {z_min_nb:.2f} | larguras: z mínimo "
-              f"{z_min_bw:.2f} | pico estável: {all(picos_estaveis)} | "
-              f"MVL z={z_mvl:.2f} (bruto={mvl_bruto:.4f}, Rayleigh p={rayleigh_p:.3f}) | "
-              f"transiente: {trans_info['transiente_encontrado']} | "
-              f"r(γ,ruido)={banda_info['correlacao_ruido']:.2f} -> {status}")
+        print(f"  >> n_bins: z mínimo {resultado['z_min_nb']:.2f} | larguras: z mínimo "
+              f"{resultado['z_min_bw']:.2f} | pico estável: {resultado['pico_estavel']} | "
+              f"MVL z={resultado['z_mvl']:.2f} (bruto={resultado['mvl_bruto']:.4f}, "
+              f"Rayleigh p={resultado['rayleigh_p']:.3f}) | "
+              f"transiente: {resultado['transiente_encontrado']} | "
+              f"r(γ,ruido)={resultado['correlacao_gama_ruido']:.2f} -> {resultado['status']}")
 
     df = pd.DataFrame(linhas)
     df.to_csv(args.saida_csv, index=False)

@@ -46,7 +46,7 @@ import numpy as np
 import scipy.signal as signal
 import matplotlib.pyplot as plt
 
-from pac_core.io import le_ns2, fatia_janela
+from pac_core.io import le_ns2, fatia_janela, resolve_canal_idx
 from pac_core.filtering import filtra_sinal, aplica_notch
 from pac_core.pac_metrics import calcula_mi_com_surrogates, z_score_mi
 
@@ -64,7 +64,9 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                   formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--arquivo", required=True, help="Caminho do .ns2")
-    ap.add_argument("--canal", required=True, help="Nome do canal (ex.: chan32)")
+    ap.add_argument("--canal", required=True,
+                    help="Nome nativo do canal (ex.: chan32) OU número 1-based "
+                         "da coluna 'canal' do dataset mestre (ex.: 16)")
     ap.add_argument("--inicio", type=float, required=True, help="Início da janela (s)")
     ap.add_argument("--fim", type=float, required=True, help="Fim da janela (s)")
     ap.add_argument("--notch", type=float, nargs="+", default=None, metavar="HZ",
@@ -77,11 +79,10 @@ def main():
 
     print(f"Carregando {args.arquivo} ...")
     dados, fs, nomes = le_ns2(args.arquivo)
-    mapa = {str(n): i for i, n in enumerate(nomes)}
-    if args.canal not in mapa:
-        raise SystemExit(f"Canal '{args.canal}' não encontrado. "
-                         f"Disponíveis: chan1..chan{dados.shape[1]}")
-    idx = mapa[args.canal]
+    try:
+        idx = resolve_canal_idx(nomes, args.canal)
+    except ValueError as e:
+        raise SystemExit(f"{e}. Nomes nativos disponíveis: {nomes}")
 
     lfp = fatia_janela(dados[:, idx], fs, args.inicio, args.fim).astype(float)
     if args.notch:

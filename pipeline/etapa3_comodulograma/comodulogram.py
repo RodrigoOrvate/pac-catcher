@@ -27,7 +27,8 @@ Uso:
     python comodulogram.py --csv resultados_refinados.csv \
         --pasta_ns2 "../Basal" --par theta_hg --saida_dir comodulogramas_hg
 
-    # Janela única, theta_hfo, notch 60 Hz:
+    # Janela única, theta_hfo, notch 60 Hz (--canal = indice 0-based BRUTO,
+    # NAO o numero 1-based da coluna "canal" do dataset mestre -- ver --help):
     python comodulogram.py --arquivo "../Basal/sessao.ns2" \
         --canal 17 --inicio 205 --fim 215 --par theta_hfo --notch 60
 
@@ -514,7 +515,12 @@ def main():
     ap.add_argument("--saida_dir", default="comodulogramas",
                     help="(modo lote) Diretório de saída dos PNGs")
     ap.add_argument("--canal", type=int, default=0,
-                    help="(janela única) Índice do canal (default: 0)")
+                    help="(janela única) ÍNDICE 0-based bruto no array de dados "
+                         "(default: 0) -- NAO é o mesmo número da coluna 'canal' "
+                         "do dataset mestre, que é 1-based (ver README/CLAUDE.md); "
+                         "para converter: indice = canal_dataset_mestre - 1. "
+                         "No modo --csv este argumento é ignorado (o canal vem "
+                         "de cada linha do CSV, por nome nativo).")
     ap.add_argument("--n_canais", type=int, default=1,
                     help="(janela única .bin legado) Nº de canais no arquivo")
     ap.add_argument("--fs", type=float, default=1000.0,

@@ -28,7 +28,7 @@ try:
 except Exception:
     pass
 
-from pac_core.io import carrega_dados
+from pac_core.io import carrega_dados, resolve_canal_idx
 
 
 def calculate_skewness(data):
@@ -64,9 +64,7 @@ def classifica_skew(skew, n, limiar=0.5):
 
 def theta_skewness_for_window(file_path, channel_name, start_s, end_s, fs_banda=(4, 8), order=4):
     dados, fs, canal_ids = carrega_dados(file_path)
-    if channel_name not in canal_ids:
-        raise ValueError(f"{channel_name} nao encontrado em {canal_ids}")
-    chan_idx = canal_ids.index(channel_name)
+    chan_idx = resolve_canal_idx(canal_ids, channel_name)
 
     idx_inicio = int(start_s * fs)
     idx_fim = int(end_s * fs)

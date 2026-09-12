@@ -88,9 +88,9 @@ def _carrega_sinal_janela(origem, canal, ini, fim):
     else:
         # ns2 via pac_core.io
         try:
-            from pac_core.io import carrega_dados, fatia_janela
+            from pac_core.io import carrega_dados, fatia_janela, resolve_canal_idx
             dados, fs, canal_ids = carrega_dados(origem)
-            idx = canal_ids.index(canal)
+            idx = resolve_canal_idx(canal_ids, canal)
             return fatia_janela(dados, fs, ini, fim)[:, idx].astype(float), fs
         except Exception as e:
             raise RuntimeError(f"Erro ao carregar {origem}: {e}")

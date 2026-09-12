@@ -35,7 +35,7 @@ try:
 except Exception:
     pass
 
-from pac_core.io import le_ns2, fatia_janela
+from pac_core.io import le_ns2, fatia_janela, resolve_canal_idx
 from pipeline.etapa1_triagem.triagem_pac import BAND_PAIRS
 from pac_core.filtering import aplica_notch
 from pipeline.etapa3_comodulograma.comodulogram import (calcula_comodulograma_z,
@@ -102,7 +102,7 @@ def main():
         fp_old, fa_old = float(r["fase_pico_hz"]), float(r["amp_pico_hz"])
 
         dados, fs, nomes = le_ns2(path)
-        idx = {str(n): i for i, n in enumerate(nomes)}[canal]
+        idx = resolve_canal_idx(nomes, canal)
         lfp = fatia_janela(dados[:, idx], fs, ini, fim).astype(float)
         lfp_n = aplica_notch(lfp, fs, linha_hz=60.0)
 

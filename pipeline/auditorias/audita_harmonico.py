@@ -61,7 +61,7 @@ try:
 except Exception:
     pass
 
-from pac_core.io import carrega_dados, fatia_janela
+from pac_core.io import carrega_dados, fatia_janela, resolve_canal_idx
 from pipeline.auditorias.audita_skewness import skewness_de_sinal  # REUSO, nao duplicacao
 from pipeline.auditorias.linha_noise_kuhn import aplica_modo  # REUSO: limpeza de linha Kuhn (60Hz)
 
@@ -171,7 +171,7 @@ def main():
 
         try:
             dados, fs, canal_ids = carrega_dados(path)
-            chan_idx = canal_ids.index(canal)
+            chan_idx = resolve_canal_idx(canal_ids, canal)
             # Sinal para FOOOF (Contexto longo)
             sinal_ctx = fatia_janela(dados, fs, ctx_ini, ctx_fim)[:, chan_idx]
             # Sinal para PLV (Janela do Candidato)

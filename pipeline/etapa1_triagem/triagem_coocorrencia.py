@@ -130,7 +130,12 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                   formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--origem", required=True, help="Arquivo .mat ou .ns2")
-    ap.add_argument("--canal", required=True, help="Canal a carregar")
+    ap.add_argument("--canal", required=True,
+                    help="Nome do canal (.mat) OU índice 0-based BRUTO no "
+                         "array (.ns2) -- é a mesma convenção 0-based usada "
+                         "por processa_sessao.py/triagem_pac.py/comodulogram.py, "
+                         "NAO o número 1-based da coluna 'canal' do dataset "
+                         "mestre (ver README/CLAUDE.md)")
     ap.add_argument("--saida", default="coocorrencia.csv")
     ap.add_argument("--limiar_dp", type=float, default=4.0, help="Limiar em DP sobre a mediana para ripple")
     ap.add_argument("--duracao_ms", type=float, default=25.0, help="Duracao minima do ripple em ms")

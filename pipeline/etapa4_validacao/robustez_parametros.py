@@ -39,8 +39,10 @@ Uso (SCRIPT central do estudo — uma chamada por sessão):
         --resumo_fdr "<sessao>/comodulogramas_fdr/resumo_comodulogramas.csv" \
         --saida_csv "<sessao>/robustez_parametros.csv"
 
-vencedores.csv (uma linha por vencedor; colunas):
-    rotulo,arquivo,canal,inicio_s,fim_s,fase_pico_hz,amp_pico_hz[,comportamento]
+vencedores.csv (uma linha por vencedor; colunas aceitas):
+    arquivo,canal,janela_ini_s,janela_fim_s,fase_pico_hz,amp_pico_hz
+    [,rotulo,comportamento] -- aceita também o formato antigo inicio_s/fim_s;
+    canal na convenção 1-based do dataset mestre ou nome nativo do .ns2.
 Se fase_pico_hz/amp_pico_hz estiverem VAZIOS numa linha, o par de pico é lido
 do resumo FDR (--resumo_fdr obrigatório nesse caso).
 
@@ -60,7 +62,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 from pipeline.etapa3_comodulograma.comodulogram import (calcula_comodulograma_z,
                           z_pico_par, FASES_DEFAULT, AMPS_DEFAULT)
-from pac_core.io import le_ns2, fatia_janela
+from pac_core.io import le_ns2, fatia_janela, resolve_canal_idx
 from pipeline.etapa1_triagem.triagem_pac import detecta_transiente, correlacao_gama_ruido
 from pac_core.filtering import filtra_sinal, aplica_notch
 from pac_core.pac_metrics import (
@@ -162,8 +164,10 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--pasta", required=True, help="Pasta com os .ns2 da sessão")
     ap.add_argument("--vencedores", required=True,
-                    help="CSV da sessão: rotulo,arquivo,canal,inicio_s,fim_s,"
-                         "fase_pico_hz,amp_pico_hz")
+                    help="CSV: arquivo,canal,janela_ini_s,janela_fim_s,"
+                         "fase_pico_hz,amp_pico_hz [,rotulo] -- aceita também "
+                         "o formato antigo inicio_s/fim_s; canal na convenção "
+                         "1-based do dataset mestre ou nome nativo do .ns2")
     ap.add_argument("--resumo_fdr", default=None,
                     help="resumo_comodulogramas.csv da sessão (exigido se "
                          "alguma linha não fixa fase/amp de pico)")
@@ -171,15 +175,21 @@ def main():
     args = ap.parse_args()
 
     venc = pd.read_csv(args.vencedores)
+    col_ini = "janela_ini_s" if "janela_ini_s" in venc.columns else "inicio_s"
+    col_fim = "janela_fim_s" if "janela_fim_s" in venc.columns else "fim_s"
+    tem_rotulo = "rotulo" in venc.columns
     resumo_cache = {}
     linhas = []
 
     for _, row in venc.iterrows():
-        rotulo = str(row["rotulo"])
         arquivo = str(row["arquivo"])
         canal = str(row["canal"])
-        inicio = float(row["inicio_s"])
-        fim = float(row["fim_s"])
+        inicio = float(row[col_ini])
+        fim = float(row[col_fim])
+        if tem_rotulo and pd.notna(row.get("rotulo")):
+            rotulo = str(row["rotulo"])
+        else:
+            rotulo = f"{arquivo.replace('.ns2', '')}_{inicio:.0f}-{fim:.0f}s"
         f_fixo = pd.to_numeric(row.get("fase_pico_hz"), errors="coerce")
         a_fixo = pd.to_numeric(row.get("amp_pico_hz"), errors="coerce")
         f_fixo = None if pd.isna(f_fixo) else float(f_fixo)
@@ -190,8 +200,7 @@ def main():
         print(f"\n=== {rotulo}: {canal} @ {inicio:g}-{fim:g}s ({arquivo}) ===")
 
         dados, fs, nomes = le_ns2(caminho)
-        mapa = {str(n): i for i, n in enumerate(nomes)}
-        lfp = fatia_janela(dados[:, mapa[canal]], fs, inicio, fim).astype(float)
+        lfp = fatia_janela(dados[:, resolve_canal_idx(nomes, canal)], fs, inicio, fim).astype(float)
         lfp = aplica_notch(lfp, fs, linha_hz=NOTCH_HZ)
         del dados
 

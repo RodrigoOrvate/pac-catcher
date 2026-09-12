@@ -67,7 +67,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from pac_core.io import le_ns2, fatia_janela
+from pac_core.io import le_ns2, fatia_janela, resolve_canal_idx
 from pac_core.filtering import filtra_sinal, aplica_notch
 from pac_core.pac_metrics import (
     _mi_de_bin_idx, fase_para_bin_idx, gera_deslocamentos,
@@ -355,7 +355,7 @@ def main():
 
     for caso in casos:
         dados, fs, mapa = carrega(caso["arquivo"])
-        idx = mapa[caso["canal"]]
+        idx = resolve_canal_idx(list(mapa.keys()), caso["canal"])
         lfp = fatia_janela(dados[:, idx], fs, caso["ini"], caso["fim"]).astype(float)
         coluna = dados[:, idx]
 
@@ -430,7 +430,7 @@ def main():
               f"pico {args.vizinhos_fp}x{args.vizinhos_fa} Hz) ===")
         dados, fs, mapa = carrega(casos[0]["arquivo"])
         for canal, z_pub in vizinhos:
-            idx = mapa[canal]
+            idx = resolve_canal_idx(list(mapa.keys()), canal)
             lfp = fatia_janela(dados[:, idx], fs,
                                args.vizinhos_ini, args.vizinhos_fim).astype(float)
             lfp_n = aplica_notch(lfp, fs, linha_hz=NOTCH_HZ)

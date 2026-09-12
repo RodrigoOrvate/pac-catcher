@@ -55,7 +55,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from pac_core.io import le_ns2, fatia_janela
+from pac_core.io import le_ns2, fatia_janela, resolve_canal_idx
 
 from pipeline.auditorias.audita_skewness import skewness_de_sinal, classifica_skew
 from pipeline.auditorias.audita_transientes import audita_transientes_de_sinal, contexto_amplitude
@@ -92,7 +92,7 @@ def audita_janela(dados, fs, nomes, canal, ini, fim, fp, fa,
     (documentado em audita_transientes.py). Passar um rng compartilhado
     aqui quebraria essa garantia.
     """
-    idx = nomes.index(canal) if canal in nomes else int(canal.replace("chan", "")) - 1
+    idx = resolve_canal_idx(nomes, canal)
 
     # Para skewness/transientes/contexto: janela já em float (mesma convenção
     # que audita_transientes.py/audita_footprint.py já usam internamente).

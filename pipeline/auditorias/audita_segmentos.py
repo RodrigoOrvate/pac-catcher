@@ -28,7 +28,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 import numpy as np
 
-from pac_core.io import le_ns2, fatia_janela
+from pac_core.io import le_ns2, fatia_janela, resolve_canal_idx
 from pac_core.filtering import aplica_notch
 from pipeline.etapa3_comodulograma.comodulogram import calcula_comodulograma_z, z_pico_par
 
@@ -45,7 +45,9 @@ def main():
                     help="Pasta com os .ns2 (padrão: caso 08/07)")
     ap.add_argument("--arquivo", default="20240708-123605-003.ns2",
                     help=".ns2 dentro de --pasta")
-    ap.add_argument("--canal", default="chan22")
+    ap.add_argument("--canal", default="chan22",
+                    help="Nome nativo (ex.: chan22) OU número 1-based da "
+                         "coluna 'canal' do dataset mestre")
     ap.add_argument("--segmentos", default="20-26,26-30,28-30,20-30",
                     help="Lista ini-fim separada por vírgula, ex.: '65-70,70-75,65-75'")
     ap.add_argument("--fp", type=int, default=5, help="Fase de pico original (Hz)")
@@ -62,7 +64,7 @@ def main():
     amps_freq = np.arange(30, 155, 5)
 
     dados, fs, nomes = le_ns2(f"{args.pasta}/{args.arquivo}")
-    idx = {str(n): i for i, n in enumerate(nomes)}[args.canal]
+    idx = resolve_canal_idx(nomes, args.canal)
 
     print(f"{args.canal} @ {args.arquivo} — z na célula do pico original "
           f"({args.fp}x{args.fa} Hz) e pico Theta-Gamma de cada segmento "

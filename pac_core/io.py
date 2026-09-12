@@ -190,12 +190,48 @@ def fatia_janela(dados, fs, t_inicio_seg, t_fim_seg):
     return dados[idx_inicio:idx_fim]
 
 
+def resolve_canal_idx(canal_ids, canal):
+    """Resolve um identificador de canal para o índice 0-based em `dados`.
+
+    Aceita as DUAS convenções que coexistem no projeto (ver CLAUDE.md/
+    README, "convenção 1-based do dataset mestre" vs nome nativo do
+    .ns2) -- unifica a lógica de fallback que só existia, ad-hoc, em
+    `audita_janela.py`:
+      1. Nome nativo exato (ex.: "chan26"), buscado direto em `canal_ids`
+         -- é o que os CSVs upstream de triagem/refino/comodulograma
+         preservam (coluna "canal" = `nomes_canais[ch]`).
+      2. Número 1-based da coluna "canal" do dataset mestre/
+         `candidatos_vencedores_consolidados.csv` (ex.: 13) -- vem de
+         `processa_sessao.py` nomear pastas `chan{indice+1}`; convertido
+         via índice = int(canal) - 1 (mesma fórmula de
+         `enriquece_dataset_mestre.py`/`comodulogram_interativo.py`).
+
+    Levanta ValueError se nenhuma das duas resolver -- nunca retorna um
+    índice adivinhado silenciosamente.
+    """
+    canal_str = str(canal)
+    if canal_str in canal_ids:
+        return canal_ids.index(canal_str)
+    try:
+        idx = int(canal_str.replace("chan", "")) - 1
+    except ValueError:
+        raise ValueError(
+            f"Canal {canal!r} não encontrado em canal_ids ({canal_ids}) nem "
+            f"interpretável como número (convenção 1-based do dataset mestre)"
+        )
+    if not (0 <= idx < len(canal_ids)):
+        raise ValueError(
+            f"Canal {canal!r} -> índice {idx} fora do range [0,{len(canal_ids)})"
+        )
+    return idx
+
+
 def concatena_sessao(pasta_basal, fs_esperado=1000.0):
     """
     Lê todos os arquivos .ns2 (ou .bin) da pasta `pasta_basal` e concatena
-    em uma matriz única. Usado pelo passo 0 (exploração visual) e pelo
-    `comodulogram_interativo.py` para ter o registro completo de uma sessão
-    em uma única estrutura.
+    em uma matriz única. Usado pela dissecação interativa pós-curadoria
+    (`comodulogram_interativo.py`, etapa5_exploracao) para ter o registro
+    completo de uma sessão em uma única estrutura.
 
     Parâmetros
     ----------

@@ -1,18 +1,14 @@
-"""PASSO 0 - exploracao_minuto.py"""
+"""exploracao_minuto.py -- timeline PAC/theta-power por minuto (etapa5_exploracao)"""
 import os, sys, argparse
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 import numpy as np
-from scipy.signal import welch, hilbert, butter, filtfilt
+from scipy.signal import welch, hilbert
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from pac_core.io import carrega_dados, fatia_janela
+from pac_core.io import carrega_dados, fatia_janela, resolve_canal_idx
+from pac_core.filtering import filtra_sinal
 from pipeline.etapa1_triagem.triagem_pac import mi_com_surrogates  # z-score com 200 surrogates (correto)
-
-def filtra_sinal(sinal, lowcut, highcut, fs, order=3):
-    nyq = 0.5 * fs
-    b, a = butter(order, [lowcut/nyq, highcut/nyq], btype="band")
-    return filtfilt(b, a, sinal)
 
 def detecta_arquivos(pasta):
     return sorted([f for f in os.listdir(pasta) if f.endswith(".ns2")])
@@ -20,7 +16,7 @@ def detecta_arquivos(pasta):
 def calcula_psd_minuto(pasta, arquivo, canal, t_ini_s, t_fim_s):
     path = os.path.join(pasta, arquivo)
     dados, fs, canal_ids = carrega_dados(path)
-    idx = canal_ids.index(canal)
+    idx = resolve_canal_idx(canal_ids, canal)
     sinal = fatia_janela(dados, fs, t_ini_s, t_fim_s)[:, idx]
     sinal = filtra_sinal(sinal, 4, 100, fs, order=3)
     f, p = welch(sinal, fs=fs, nperseg=int(1.2*fs), noverlap=int(1.2*fs)//2, nfft=4000)
@@ -41,7 +37,7 @@ def calcula_timeline_mi_triplo(pasta, arquivo, canal, t_ini_s, t_fim_s,
     """
     path = os.path.join(pasta, arquivo)
     dados, fs, canal_ids = carrega_dados(path)
-    idx = canal_ids.index(canal)
+    idx = resolve_canal_idx(canal_ids, canal)
     rng = np.random.default_rng(42)
     nyq = fs * 0.5
     ts, z_tg, z_thg, z_thfo, ratio_hfo_g = [], [], [], [], []
@@ -95,7 +91,7 @@ def calcula_timeline_mi(pasta, arquivo, canal, t_ini_s, t_fim_s, passo_s=5,
 def calcula_timeline_theta_power(pasta, arquivo, canal, t_ini_s, t_fim_s, passo_s=5):
     path = os.path.join(pasta, arquivo)
     dados, fs, canal_ids = carrega_dados(path)
-    idx = canal_ids.index(canal)
+    idx = resolve_canal_idx(canal_ids, canal)
     ts, powers = [], []
     for ini in np.arange(t_ini_s, t_fim_s - 10, passo_s):
         fim = ini + 10
@@ -219,7 +215,7 @@ def duracao_arquivo(pasta, arquivo):
     return dados.shape[0] / fs
 
 def main():
-    ap = argparse.ArgumentParser(description="PASSO 0: timeline por minuto")
+    ap = argparse.ArgumentParser(description="Timeline PAC/theta-power por minuto (exploracao pontual)")
     ap.add_argument("--pasta_ns2", required=True)
     ap.add_argument("--canal", default="chan20")
     ap.add_argument("--saida_dir", default="test_minutos")
@@ -230,7 +226,7 @@ def main():
     if not arquivos:
         print("[ERRO] Nenhum .ns2"); return
     total_min = len(arquivos) * 5
-    print(f"= PASSO 0 — Timeline por minuto =")
+    print(f"= Timeline por minuto =")
     print(f"Pasta: {args.pasta_ns2}  Arquivos: {arquivos}  Canal fixo: {args.canal}  Minutos: {total_min}  top_n={args.top_n}")
     for minuto in range(1, total_min + 1):
         arquivo_idx = (minuto - 1) // 5

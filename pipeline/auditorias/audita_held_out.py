@@ -34,7 +34,7 @@ try:
 except Exception:
     pass
 
-from pac_core.io import carrega_dados
+from pac_core.io import carrega_dados, resolve_canal_idx
 
 N_SURR = 200
 SEED = 42
@@ -91,7 +91,7 @@ def mi_with_surrogate_z(segment, fs, f_phase, f_amp, n_surr=N_SURR, seed=SEED):
 
 def load_channel(file_path, channel_name):
     dados, fs, canal_ids = carrega_dados(file_path)
-    chan_idx = canal_ids.index(channel_name)
+    chan_idx = resolve_canal_idx(canal_ids, channel_name)
     return dados[:, chan_idx], fs
 
 

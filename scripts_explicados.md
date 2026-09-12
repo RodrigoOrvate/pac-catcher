@@ -5,29 +5,43 @@
 > (MTESC04/MTESC05 × NOCI/LAC). Nada de específico de sessão aqui
 > — caminhos, offsets e vencedores entram por CLI/CSV, nunca no código.
 
-## Visão geral do pipeline (passo 0 + 7 passos)
+## Visão geral do pipeline (Passos 1–5, com sub-passos 3.5–3.8)
+
+**A exploração interativa NÃO é mais o Passo 0.** Até 2026-09 o plano era
+"passo 0 e' primeiro, nao opcional": o pesquisador veria o sinal antes de
+qualquer coisa, numa ferramenta assíncrona (VisPy/Neuroglancer/Bqplot)
+para navegar milhões de pontos. Isso nunca foi implementado assim — a
+ferramenta que existe hoje (`comodulogram_interativo.py` + notebook) faz
+o oposto: roda **depois** de tudo, para dissecar visualmente os
+vencedores já filtrados (Passo 5, ver seção dedicada abaixo).
 
 ```
-PASSO 0: exploracao_interativo.py (NOVO — PRIMEIRO, nao opcional)
-  → LFP dos 3 .ns2 juntos (concatena_sessao); navegacao assíncrona
-     (VisPy/Neuroglancer/Bqplot no Jupyter) em milhões de pontos
-  → visual: espectrograma + PSD + LFP bruto navegavel
-  → usuario marca instante interessante → carimbo (t_start, t_end, canal)
-     enviado ao pipeline por CLI/CSV — nao hardcoded
-
-triagem_pac.py          → etapa 1: varre TODAS as janelas (10 s / 5 s)
-refina_candidatos.py    → etapa 2: FDR de janela + filtros de artefato
-comodulogram.py         → etapa 3: mapas z...scoredos ±notch + FDR do mapa
-diagnostico_janela.py   → etapa 5: 5 painéis + MI respiração vs θ×γ
-robustez_parametros.py  → etapa 7 (validação): sweep de parâmetros + MVL
-figura_apresentacao.py  → etapa 7 (opcional): figuras dos vencedores
-agrega_resultados.py         → constrói o dataset mestre (merge por canal)
-enriquece_dataset_mestre.py  → FOOOF v2 + portão de banda larga no mestre
-audita_*.py             → auditorias pós...hoc (transientes, segmentos,
-                          pegada espacial, held-out, harmônico...)
+triagem_pac.py          → Passo 1 (etapa1_triagem): varre TODAS as janelas (10 s / 5 s)
+refina_candidatos.py    → Passo 2 (etapa2_refinamento): FDR de janela + filtros de artefato
+comodulogram.py         → Passo 3 (etapa3_comodulograma): mapas z...scoredos ±notch + FDR do mapa
+gerar_template_comportamento.py,
+anotador_comportamento.py,
+junta_comportamento.py  → Passo 3.5 (pipeline/comportamento/): anotação comportamental
+                          sincronizada com vídeo, mesclada ao dataset mestre
+agrega_resultados.py,
+enriquece_dataset_mestre.py → Passo 3.6 (pipeline/dataset_mestre/): constrói o dataset
+                          mestre (merge por canal) + FOOOF v2 + portão de banda larga
+audita_*.py             → Passo 3.7 (pipeline/auditorias/): auditorias pós-hoc
+                          (transientes, segmentos, pegada espacial, held-out, harmônico...)
 audita_janela.py        → orquestrador forense: as 4 auditorias
                           compatíveis (skew+transientes+footprint+
                           harmônico) numa só passada por canal/janela
+diagnostico_janela.py   → pipeline/auditorias/: 5 painéis + MI respiração vs θ×γ
+consolida_vencedores.py → Passo 3.8 (pipeline/dataset_mestre/, novo 2026-09): filtro final
+                          (estatístico + FOOOF + harmônico + comportamental) →
+                          candidatos_vencedores_consolidados.csv
+robustez_parametros.py,
+figura_apresentacao.py  → Passo 4 (etapa4_validacao): sweep de parâmetros + MVL,
+                          e figuras finais dos vencedores (opcional)
+comodulogram_interativo.py,
+notebook exploracao_interativo.ipynb → Passo 5 (etapa5_exploracao): dissecação
+                          interativa (CLI ou notebook) dos vencedores consolidados,
+                          com zoom FOOOF + comodulograma
 pac_core/               → núcleo matemático compartilhado (refatoração
                           2026-09): io.py, filtering.py, pac_metrics.py.
                           ns2_utils.py e demais "shims" listados abaixo
@@ -207,7 +221,7 @@ o padrão), `z_pico_theta_gamma` (pico no quadrante θ×γ).
 
 .........
 
-## 4. `diagnostico_janela.py` — Figura diagnóstica (etapa 5)
+## 4. `diagnostico_janela.py` — Figura diagnóstica (pipeline/auditorias/, Passo 3.7)
 
 **O que faz:** para um (arquivo, canal, janela) específico, plota 5
 painéis alinhados no tempo + 4 números que discriminam acoplamento
@@ -245,7 +259,7 @@ python pipeline/auditorias/diagnostico_janela.py ......arquivo "<BASAL>/<arquivo
 
 .........
 
-## 5. `robustez_parametros.py` — Validação de robustez (etapa 7)
+## 5. `robustez_parametros.py` — Validação de robustez (etapa 4, Passo 4)
 
 **O que faz:** testa se o acoplamento de cada *vencedor* sobrevive a
 mudanças de parâmetro e a uma métrica alternativa — sem bins.
@@ -288,133 +302,94 @@ python pipeline/etapa4_validacao/robustez_parametros.py ......pasta "<sessao>/<B
 
 .........
 
-## 6. `figura_apresentacao.py` — Figura dos vencedores (etapa 7, opcional)
+## 6. `figura_apresentacao.py` — Figura dos vencedores (etapa 4, Passo 4, opcional)
 
-**O que faz:** gera uma figura de apresentação para cada vencedor do
-`vencedores.csv`. Cada figura tem 4 séries temporais + comodulograma
-+ polar fase×amplitude (estilo Tort et al. 2010).
+**O que faz:** gera uma figura de apresentação para cada vencedor de
+`candidatos_vencedores_consolidados.csv` (Passo 3.8). Cada figura tem
+4 séries temporais + comodulograma + polar fase×amplitude (estilo Tort
+et al. 2010) + 2 painéis FOOOF (teta e gama/HG, novo 2026-09).
 
-**Layout (4×2):**
-... Esquerda (séries alinhadas, janela completa):
-  1. LFP bruto (notch 60 Hz);
+**Layout (4×3):**
+... Coluna 1 (séries alinhadas, janela completa):
+  1. LFP bruto (notch 60/120/180/240 Hz);
   2. theta filtrado no par de pico (±1 Hz);
   3. gamma filtrado no par de pico (±5 Hz) + envelope;
   4. espectrograma (STFT) com bandas θ/γ marcadas;
-... Direita:
+... Coluna 2:
   5. comodulograma z...scoredo (recalculado aqui, com notch) com o
      par de pico marcado;
   6. distribuição polar fase×amplitude (18 bins), amplitude de γ
      normalizada por bin de fase do theta — o MI polar é reportado
-     abaixo do círculo.
+     abaixo do círculo;
+... Coluna 3 (novo 2026-09, reusa `painel_fooof`/`ajusta_fooof_teta_gamma`
+   de `etapa5_exploracao/comodulogram_interativo.py`, não duplicado aqui):
+  7. FOOOF banda baixa (2-45 Hz): fundo aperiódico (knee) + pico de teta;
+  8. FOOOF banda alta (35 Hz-~0,95×Nyquist, limpeza de linha Kuhn):
+     fundo aperiódico + picos de gama/HG.
 
 **Nota:** o comodulograma é recalculado aqui com o par de pico do
 vencedor — garante consistência visual com os números da robustez.
 
+**Canal:** convenção 1-based do dataset mestre (mesma de
+`comodulogram_interativo.py`), não o nome nativo do `.ns2`.
+
 **CLI:**
 ```bash
-python pipeline/etapa4_validacao/figura_apresentacao.py ......pasta_ns2 "<sessao>/<BASAL>" \
-    ......vencedores "<sessao>/vencedores.csv" \
-    ......saida_dir "<sessao>/RESULTADOS/figuras"
+python pipeline/etapa4_validacao/figura_apresentacao.py --pasta_ns2 "<sessao>/Basal antes da infusao" \
+    --vencedores resultados/candidatos_vencedores_consolidados.csv \
+    --saida_dir resultados/figuras
 ```
 
-**Saída:** `<saida_dir>/<rotulo>_<canal>.png` (nome do PNG = rótulo +
-canal, conforme convenção).
+**Saída:** `<saida_dir>/<rotulo>_ch<canal>.png` (`rotulo` é opcional,
+gerado automaticamente a partir de arquivo+canal+janela se ausente).
 
-**Depende de:** `vencedores.csv` (formato: `rotulo,arquivo,canal,
-inicio_s,fim_s,fase_pico_hz,amp_pico_hz[,comportamento]`).
+**Depende de:** um CSV com colunas `arquivo,canal,janela_ini_s,
+janela_fim_s,fase_pico_hz,amp_pico_hz[,rotulo,comportamento,par]`
+(schema atual de `candidatos_vencedores_consolidados.csv`; aceita
+também o formato antigo `inicio_s`/`fim_s`).
 
 .........
 
-## 0 (NOVO). `exploracao_interativo.py` — Passo 0: exploração visual em Jupyter
+## 6.5. `comodulogram_interativo.py` + notebook — Dissecação Interativa dos Vencedores (etapa5_exploracao, Passo 5)
 
-**Arquitetura:** navegador assíncrono para milhões de pontos,
-integrado ao Jupyter. O pipeline canônico (etapas 1–7) varre
-**cego** — processa todas as janelas e devolve números. O passo 0
-inverte isso: o pesquisador **vê o sinal primeiro**, marca o que
-interessa, e só então o pipeline processa. O pipeline não acha
-acoplamento? Provavelmente a janela была errada — você viu o
-acoplamento no LFP e precisa informar o carimbo.
+**Isto substitui o antigo plano de "Passo 0" descrito acima** (nunca
+implementado como navegador assíncrono de milhões de pontos). A
+ferramenta real, renomeada de `etapa0_exploracao` para
+`etapa5_exploracao` em 2026-09, roda **depois** da consolidação
+(Passo 3.8), não antes da triagem: consome
+`candidatos_vencedores_consolidados.csv` e gera, por evento, os mesmos
+4 painéis do `figura_apresentacao.py` (LFP+teta+gama, FOOOF teta,
+FOOOF gama/HG, comodulograma) — mas de forma interativa/pontual em vez
+de em lote.
 
-**Tecnologia:** VisPy (CanvasSci, GPU...accelerated) ou Bqplot (d3.js
-no browser) — lidam com milhões de pontos sem travar, zoom livre,
-scroll, atualização em tempo real. Alternativa: Neuroglancer (se
-houver voxels 3D) ou painel MNE...Python com TimeSeriesViewer.
-**Não usar matplotlib estático para isso** — escala mal para registros
-longos.
+**Duas formas de uso (mesma lógica por baixo):**
+- **Notebook** (`pipeline/etapa5_exploracao/notebooks/exploracao_interativo.ipynb`):
+  dashboard com dropdowns em cascata Rato → Comportamento → Janela
+  campeã (ordenada por z-score), widget "Visualizar".
+- **CLI** (`comodulogram_interativo.py --zoom_t_center <s>`): gera uma
+  janela específica sem abrir GUI — útil para automação/testes.
 
-**Dados:** LFP dos 3 .ns2 juntos (já disponíveis em
-`concatena_sessao`). A navegação é sobre o **registro completo** da
-sessão, não sobre 1 min central.
+**Canal:** convenção 1-based do dataset mestre (`--canal` = mesmo
+número da coluna `canal` do CSV); o script converte internamente para
+o índice 0-based do array. Funções reusáveis por outros scripts:
+`ajusta_fooof_teta_gamma` (fit FOOOF teta+gama com limpeza de linha
+Kuhn) e `painel_fooof` (plotagem do painel), ambas usadas também por
+`figura_apresentacao.py` (etapa4_validacao) — ver seção 6.
 
-**Interface esperada:**
+**Tecnologia real:** matplotlib estático (headless-compatível) +
+ipywidgets no notebook — não VisPy/Neuroglancer/Bqplot como o plano
+original de "Passo 0" previa; a escala de dados (janelas de 10s, não a
+sessão inteira ponto-a-ponto) não exigiu isso.
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│  EXPLORAÇÃO — MTESC04 S1 (3 arquivos, 150 s, 32 canais)  │
-├─────────────┬──────────────────────────────┬───────────────┤
-│ CANAIS      │ LFP BRUTO (navegável, zoom)   │ ESPECTROGRAMA │
-│ (scroll/    │ Ver teta (4...8 Hz) como ondulação│ (freq vs t) │
-│  clique)    │ Ver gama (30...80 Hz) como    │   Teta ↑ quando│
-│             │   bursts modulados pelo teta│   gama bursts │
-│             │                              │               │
-├─────────────┴──────────────────────────────┴───────────────┤
-│  PSD (linear + log) por canal: ver picos em teta/gama    │
-├─────────────────────────────────────────────────────────────┤
-│  CONTROLES                                                  │
-│  [Marcar instante] → t_start = 47s, t_end = 57s, ch=5    │
-│  [Enviar para triagem] → executa triagem_pac.py nessa     │
-│     janela + canal, devolve z e FDR no terminal            │
-│  [Salvar carimbo] → adiciona linha ao candidatos.csv     │
-│                                                             │
-│  [Parar] → encerra, gera candidatos.csv com todos os     │
-│     carimbos marcados                                      │
-└─────────────────────────────────────────────────────────────┘
-```
-
-**Fluxo correto:**
-
-```
-1. open exploracao_interativo.ipynb (Jupyter Lab)
-2. carrega 3 .ns2 → concatena (concatena_sessao)
-3. navegacao: scroll pelo registro, zoom, escolha de canal
-4. ve teta (4...8 Hz) e gama (30...80 Hz) juntos?
-5. clica em "Marcar instante" → salva (t_start, t_end, canal)
-6. (opcional) clica em "Enviar para triagem" → recebe z + FDR
-   imediatamente na célula do Jupyter
-7. repete 4...6 para todos os instantes interessantes
-8. clica "Salvar carimbos" → gera candidatos.csv
-9. fecha notebook → inicia pipeline canônico com candidatos.csv
-```
-
-**Saída:**
-
-```
-candidatos.csv
-rotulo,t_start,t_end,canal,observacao
-ep1_rearing,47,57,5,"teta forte em 8Hz, gama em 70Hz"
-ep2_grooming,82,92,5,"teta moderada, bursts gama curtos"
-ep3_walking,110,120,16,"teta 6Hz, gama 50Hz"
-```
-
-Este arquivo alimenta `triagem_pac.py` (etapa 1) como alternativa à
-varredura cega — ele processa **só as janelas marcadas**, não toda a
-sessão.
-
-**CLI mínima (Jupyter):**
+**CLI mínima (notebook):**
 
 ```bash
-cd C:\acoplamento_theta...gamma\SCRIPT
-jupyter lab
-# abrir notebooks/exploracao_interativo.ipynb
+cd C:\acoplamento_theta-gamma\SCRIPT
+jupyter notebook pipeline/etapa5_exploracao/notebooks/exploracao_interativo.ipynb
 ```
 
-**Depende de:** `ns2_utils.py` (leitura), VisPy ou Bqplot (instalar:
-`pip install bqplot` ou `pip install vispy`). MNE...Python já está no
-requirements.
-
-**Status:** a ser implementado (script atual `comodulogram_interativo.py`
-é o protótipo estático; reescrever como Jupyter + VisPy/Bqplot é o
-próximo passo).
+**Depende de:** `pac_core.io`/`pac_core.filtering` (leitura e filtros),
+`fooof` (ajuste FOOOF), `ipywidgets` (controles do notebook).
 
 .........
 

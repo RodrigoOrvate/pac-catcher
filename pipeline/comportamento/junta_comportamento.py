@@ -21,7 +21,7 @@ def junta_comportamento(dataset_mestre_path, template_path, saida_path):
     print("Cruzando dados (Merge)...")
     df_final = pd.merge(df_mestre, df_comp_limpo, on=colunas_chave, how="left")
     
-    df_final.to_csv(saida_path, index=False)
+    df_final.to_csv(saida_path, index=False, encoding="utf-8-sig")
     print(f"Sucesso! Dataset final com comportamentos salvo em: {saida_path}")
     
     # Relatório rápido

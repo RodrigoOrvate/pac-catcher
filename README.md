@@ -40,16 +40,16 @@ O código é unificado e vive na pasta raiz (`SCRIPT/`). Abaixo, o mapa de ferra
 
 - **`pipeline/`**: O núcleo duro do PAC Catcher, organizado em pastas de etapa (reorganização 2026-09 — ver `scripts_explicados.md` para detalhes da refatoração e a convenção de import qualificado usada):
   - **`processa_sessao.py`** e **`ns2_utils.py`** ficam na raiz de `pipeline/` (orquestrador principal e shim de I/O, não pertencem a uma etapa específica).
-  - **`etapa8_exploracao/`**: `exploracao_minuto.py`, `comodulogram_interativo.py` — exploração visual, timeline e dissecação interativa com FOOOF dos eventos campeões.
   - **`etapa1_triagem/`** (Passo 1 + 0.5): `triagem_pac.py` / `triagem_pac_mat.py` (varredura inicial `.ns2`/`.mat` em busca de Teta-Gama, Teta-HG, Teta-HFO), `triagem_coocorrencia.py` (Passo 0.5, resolução amostral HFO/Ripple), `deteccao_ripple.py`, `preprocessa_referencia_diferencial.py`, `inspeciona_evento.py`.
   - **`etapa2_refinamento/`**: `refina_candidatos.py` — p-valor paramétrico (Gama), FDR de Benjamini-Hochberg, filtros de kurtose.
   - **`etapa3_comodulograma/`**: `comodulogram.py` — mapas de calor 2D (fase x amplitude) com filtros notch.
-  - **`etapa7_validacao/`**: `robustez_parametros.py` & `figura_apresentacao.py` — estabilidade (varredura de n_bins, filtros) e figuras finais (STFT, polar plots).
-  - **`dataset_mestre/`**: `agrega_resultados.py` → `enriquece_dataset_mestre.py` (constrói e depois enriquece o dataset mestre — FOOOF v2 + portão de banda larga, ver Passo 3.6) + os 2 shims `atualiza_fooof_mestre.py`/`aplica_portao_banda_larga_mestre.py`.
+  - **`etapa4_validacao/`** (Passo 4, ex-`etapa7_validacao`): `robustez_parametros.py` & `figura_apresentacao.py` — estabilidade (varredura de n_bins, filtros) e figuras finais (STFT, polar plots, FOOOF).
+  - **`etapa5_exploracao/`** (Passo 5, ex-`etapa8_exploracao`): `exploracao_minuto.py`, `comodulogram_interativo.py` — dissecação interativa com FOOOF dos eventos campeões (notebook ou CLI).
+  - **`dataset_mestre/`**: `agrega_resultados.py` → `enriquece_dataset_mestre.py` (constrói e depois enriquece o dataset mestre — FOOOF v2 + portão de banda larga, ver Passo 3.6) → `consolida_vencedores.py` (filtro final de vencedores, ver Passo 3.8) + os 2 shims `atualiza_fooof_mestre.py`/`aplica_portao_banda_larga_mestre.py`.
   - **`comportamento/`**: `gerar_template_comportamento.py` (template de janelas exclusivas), `anotador_comportamento.py` (GUI de sincronização com vídeo), `junta_comportamento.py` (mescla anotações ao dataset mestre).
   - **`utilitarios/`**: `extrair_picos.py`, `plot_basal_results.py`, `gerar_relatorio_pdf.py`, `gera_plot_fooof.py`.
 
-- **`pipeline/auditorias/`**: Filtros e testes secundários rigorosos para falsos positivos.
+- **`pipeline/auditorias/`** (Passo 3.7): Filtros e testes secundários rigorosos para falsos positivos.
   - `audita_janela.py`: **orquestrador forense** — roda skewness + transientes + footprint + harmônico numa só passada para um canal/janela (lê o `.ns2` uma única vez). Recomendado para investigar um caso específico; os 4 scripts abaixo continuam existindo individualmente (e são os que `processa_sessao.py` chama em lote).
   - `audita_harmonico.py` / `audita_harmonico_hfo.py`: Usa o FOOOF para separar 1/f e confirmar se os picos de amplitude não são harmônicos matemáticos da fase.
   - `audita_skewness.py`: Checa se a assimetria (dente-de-serra) da onda lenta forjou o acoplamento.
@@ -69,15 +69,6 @@ Instale as bibliotecas necessárias:
 pip install -r requirements.txt
 ```
 *(Certifique-se de usar Python 3.9+ e de ter suas sessões `.ns2` organizadas nas pastas correspondentes).*
-
----
-
-### Passo 0: Exploração Interativa (Opcional, mas recomendado)
-Antes de rodar a varredura cega, você pode navegar pelo sinal bruto, STFT e PSD concatenado de toda a sessão para identificar visualmente eventos de interesse.
-```bash
-# Executado via Jupyter Notebook ou interface interativa
-python pipeline/etapa8_exploracao/exploracao_minuto.py ...
-```
 
 ---
 
@@ -127,7 +118,10 @@ Para correlacionar os episódios de acoplamento detectados com o comportamento r
 1. **Gerar o Template de Janelas Exclusivas:**
    Agrupa as janelas onde houve detecção de PAC em qualquer canal, evitando anotações repetidas da mesma janela temporal:
    ```bash
-   python pipeline/comportamento/gerar_template_comportamento.py --csv_mestre ../dataset_mestre_final_v2.csv --saida ../template_comportamento.csv
+   python pipeline/comportamento/gerar_template_comportamento.py
+   # sem argumentos usa os defaults (pasta autocontida, reorg 2026-09):
+   #   --csv_mestre resultados/dataset_mestre_final.csv
+   #   --saida      pipeline/comportamento/template_comportamento.csv
    ```
 
 2. **Anotar via Interface Gráfica:**
@@ -142,7 +136,11 @@ Para correlacionar os episódios de acoplamento detectados com o comportamento r
 
 3. **Mesclar Anotações ao Dataset Mestre:**
    ```bash
-   python pipeline/comportamento/junta_comportamento.py --template ../template_comportamento.csv --csv_mestre ../dataset_mestre_final_v2.csv --saida ../dataset_mestre_final_comportamento.csv
+   python pipeline/comportamento/junta_comportamento.py
+   # sem argumentos usa os defaults:
+   #   --mestre        resultados/dataset_mestre_final.csv
+   #   --comportamento pipeline/comportamento/template_comportamento.csv
+   #   --saida         resultados/dataset_mestre_COM_COMPORTAMENTO.csv
    ```
 
 ---
@@ -162,7 +160,7 @@ Por padrão `enriquece_dataset_mestre.py` roda as duas etapas (`--etapas fooof p
 
 ---
 
-### Passo 4: Auditorias Específicas
+### Passo 3.7: Auditorias Específicas
 O pipeline conta com auditorias separadas para blindar os resultados contra falhas físicas e matemáticas do sinal. Para investigar um canal/janela específico de uma vez, use o orquestrador:
 ```bash
 python pipeline/auditorias/audita_janela.py --pasta_ns2 "<sessao>/<BASAL>" \
@@ -179,13 +177,49 @@ Ele roda as 4 auditorias abaixo numa só passada (lendo o `.ns2` uma única vez)
 
 ---
 
-### Passo 5: Geração de Figuras Finais
-Ao final, você seleciona os verdadeiros vencedores e passa para a geração das imagens (STFT, distribuição polar e LFP bruto) para apresentação, *lab meetings* ou artigo.
+### Passo 3.8: Consolidação dos Vencedores
+Filtra `dataset_mestre_COM_COMPORTAMENTO.csv` (Passo 3.5) pelos portões estatístico, FOOOF, harmônico e comportamental de uma vez, gerando a tabela final que os Passos 4 e 5 consomem:
 ```bash
-python pipeline/etapa7_validacao/figura_apresentacao.py \
-    --vencedores "../SESSAO_EXEMPLO/RESULTADOS/vencedores.csv" \
-    --pasta_ns2 "../SESSAO_EXEMPLO/Basal" \
-    --saida_dir "../SESSAO_EXEMPLO/RESULTADOS/figuras"
+python pipeline/dataset_mestre/consolida_vencedores.py
+# sem argumentos usa os defaults:
+#   --entrada resultados/dataset_mestre_COM_COMPORTAMENTO.csv
+#   --saida   resultados/candidatos_vencedores_consolidados.csv
 ```
+Critérios aplicados: `veredito_refino == 'Candidato robusto'` + portão FOOOF (`erro_ajuste < 0.15`, knee válido, pico periódico real nas duas bandas) + `veredito_harmonico == 'CLEAN'` + comportamento anotado (excluindo `Artefato / Cabo`). Imprime uma síntese de eventos por rato e por comportamento (já colapsando pseudoreplicação espacial só para o relatório — o CSV de saída mantém a granularidade canal×par).
+
+---
+
+### Passo 4: Geração de Figuras Finais
+Ao final, você seleciona os vencedores consolidados (Passo 3.8) e gera as imagens (STFT, distribuição polar, LFP bruto e painéis FOOOF teta/gama) para apresentação, *lab meetings* ou artigo.
+```bash
+python pipeline/etapa4_validacao/figura_apresentacao.py \
+    --vencedores resultados/candidatos_vencedores_consolidados.csv \
+    --pasta_ns2 "<sessao>/Basal antes da infusao" \
+    --saida_dir resultados/figuras
+```
+`--canal` na tabela de vencedores segue a convenção 1-based do dataset mestre (mesma do Passo 5); `rotulo` é opcional (gerado automaticamente a partir de arquivo+canal+janela se ausente).
 
 *(Imagens de exemplo serão adicionadas aqui em breve para facilitar a visualização).*
+
+---
+
+### Passo 5: Exploração e Dissecação Interativa dos Vencedores (Opcional)
+Alternativa interativa ao Passo 4: em vez de gerar todas as figuras de uma vez, inspeciona visualmente qualquer evento de `candidatos_vencedores_consolidados.csv` com 4 painéis: LFP bruto + teta + gama (10s), FOOOF banda baixa (2-45 Hz, knee + pico de teta), FOOOF banda alta (35 Hz-~0,95×Nyquist, com limpeza de linha Kuhn) e o comodulograma fase×amplitude daquela janela.
+
+Duas formas de usar a mesma lógica (`pipeline/etapa5_exploracao/comodulogram_interativo.py`):
+
+**A) Notebook — dashboard com dropdowns Rato → Comportamento → Janela campeã:**
+```bash
+jupyter notebook pipeline/etapa5_exploracao/notebooks/exploracao_interativo.ipynb
+```
+
+**B) Linha de comando — gera direto uma janela específica, sem abrir GUI:**
+```bash
+python pipeline/etapa5_exploracao/comodulogram_interativo.py \
+    --pasta_ns2 "<sessao>/Basal antes da infusao" \
+    --canal 13 --par theta_hg \
+    --saida resultados/figuras_campeoes/evento_x \
+    --zoom_t_center 50
+```
+
+> **Atenção ao canal:** `--canal` usa a MESMA convenção 1-based da coluna `canal` do dataset mestre (linha com `canal=13` no CSV → `--canal 13` no comando); o script converte internamente para o índice 0-based do array de dados. Não confundir com o nome nativo do canal no `.ns2` (ex.: `chan26`), que só aparece no título da figura para conferência cruzada.

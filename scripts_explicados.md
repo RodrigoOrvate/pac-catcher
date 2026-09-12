@@ -277,7 +277,7 @@ rejeitar sozinho — lição registrada na sessão #1 (chan30, MVL 1,9).
 
 **CLI:**
 ```bash
-python pipeline/etapa7_validacao/robustez_parametros.py ......pasta "<sessao>/<BASAL>" \
+python pipeline/etapa4_validacao/robustez_parametros.py ......pasta "<sessao>/<BASAL>" \
     ......vencedores "<sessao>/vencedores.csv" \
     ......resumo_fdr "<sessao>/RESULTADOS/comodulogramas_fdr/resumo_comodulogramas.csv" \
     ......saida_csv "<sessao>/RESULTADOS/robustez_parametros.csv"
@@ -312,7 +312,7 @@ vencedor — garante consistência visual com os números da robustez.
 
 **CLI:**
 ```bash
-python pipeline/etapa7_validacao/figura_apresentacao.py ......pasta_ns2 "<sessao>/<BASAL>" \
+python pipeline/etapa4_validacao/figura_apresentacao.py ......pasta_ns2 "<sessao>/<BASAL>" \
     ......vencedores "<sessao>/vencedores.csv" \
     ......saida_dir "<sessao>/RESULTADOS/figuras"
 ```
@@ -566,7 +566,9 @@ Para correlacionar os episódios de acoplamento detectados com o comportamento r
   - O aplicativo grava o CSV utilizando UTF-8 com BOM (`utf-8-sig`), garantindo que acentos da língua portuguesa não sejam corrompidos ao abrir no Microsoft Excel no Windows.
 
 ### 14.3 `junta_comportamento.py` — Mesclagem com o Dataset Mestre
-- **O que faz:** Combina as anotações feitas no `template_comportamento.csv` de volta ao dataset mestre de resultados (`dataset_mestre_final_v2.csv`), propagando o comportamento anotado para todos os canais correspondentes àquela janela temporal.
+- **O que faz:** Combina as anotações feitas no `template_comportamento.csv` de volta ao dataset mestre de resultados (`resultados/dataset_mestre_final.csv`), propagando o comportamento anotado para todos os canais correspondentes àquela janela temporal. Salva em `resultados/dataset_mestre_COM_COMPORTAMENTO.csv`.
+
+*Nota (reorg 2026-09):* as três ferramentas acima e seus dados (`template_comportamento.csv`, `config_anotador.json`, `backups_comportamento/`) vivem juntos em `pipeline/comportamento/` — pasta autocontida, sem depender de arquivos soltos na raiz de `SCRIPT/`.
 
 ---
 

@@ -26,15 +26,25 @@ def gerar_template_comportamento(csv_path, saida):
     janelas_unicas['comportamento'] = ""
     janelas_unicas['observacao_movimento_cabo'] = ""
     
-    # Salva o template
-    janelas_unicas.to_csv(saida, index=False)
+    # Salva o template (utf-8-sig: regra do projeto p/ Excel abrir acentos corretamente)
+    janelas_unicas.to_csv(saida, index=False, encoding="utf-8-sig")
     print(f"Template de comportamento gerado com {len(janelas_unicas)} janelas exclusivas para anotação.")
     print(f"Salvo em: {saida}")
 
 if __name__ == '__main__':
+    modulo_dir = os.path.dirname(os.path.abspath(__file__))
+    script_dir = os.path.abspath(os.path.join(modulo_dir, "..", ".."))
+
+    candidatos_mestre = [
+        os.path.join(script_dir, "resultados", "dataset_mestre_final.csv"),
+        os.path.join(script_dir, "dataset_mestre_final.csv"),
+    ]
+    padrao_mestre = next((c for c in candidatos_mestre if os.path.exists(c)), candidatos_mestre[0])
+    padrao_saida = os.path.join(modulo_dir, "template_comportamento.csv")
+
     parser = argparse.ArgumentParser(description="Gera o template CSV vazio para anotação de comportamento.")
-    parser.add_argument("--csv_mestre", default="dataset_mestre_final.csv", help="Caminho do CSV mestre (entrada)")
-    parser.add_argument("--saida", default="template_comportamento.csv", help="Caminho do template (saída)")
+    parser.add_argument("--csv_mestre", default=padrao_mestre, help="Caminho do CSV mestre (entrada)")
+    parser.add_argument("--saida", default=padrao_saida, help="Caminho do template (saída)")
     args = parser.parse_args()
-    
+
     gerar_template_comportamento(args.csv_mestre, args.saida)

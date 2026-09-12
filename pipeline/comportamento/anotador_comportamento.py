@@ -29,22 +29,25 @@ from PIL import Image, ImageTk
 import cv2
 
 def _encontrar_csv_padrao():
+    modulo_dir = os.path.dirname(os.path.abspath(__file__))
     candidatos = [
+        os.path.join(modulo_dir, "template_comportamento.csv"),
         os.path.join(os.getcwd(), "template_comportamento.csv"),
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "template_comportamento.csv"),
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "template_comportamento.csv"),
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "template_comportamento.csv"),
+        os.path.join(modulo_dir, "..", "..", "template_comportamento.csv"),
+        os.path.join(modulo_dir, "..", "..", "..", "template_comportamento.csv"),
     ]
     for c in candidatos:
         if os.path.exists(c):
             return os.path.abspath(c)
-    return os.path.abspath("template_comportamento.csv")
+    return os.path.abspath(os.path.join(modulo_dir, "template_comportamento.csv"))
 
 def _encontrar_config_padrao():
+    modulo_dir = os.path.dirname(os.path.abspath(__file__))
     candidatos = [
+        os.path.join(modulo_dir, "config_anotador.json"),
         os.path.join(os.getcwd(), "config_anotador.json"),
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "config_anotador.json"),
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "config_anotador.json"),
+        os.path.join(modulo_dir, "..", "..", "config_anotador.json"),
+        os.path.join(modulo_dir, "..", "..", "..", "config_anotador.json"),
     ]
     for c in candidatos:
         if os.path.exists(c):
@@ -644,11 +647,15 @@ class AnotadorApp(tk.Tk):
     def _tentar_autodetectar_video(self, sessao_nome: str):
         """Procura o vídeo (.MPG, .mp4, etc.) da sessão nas pastas do workspace."""
         token = sessao_nome.split("_")[0].strip().lower()
-        root_dir = os.path.dirname(os.path.abspath(self.csv_path))
+        # LAC_NOCI/EXPLORACAO_OBJETOS sao irmas de SCRIPT/, nao filhas da
+        # pasta do CSV -- por isso resolvidas a partir de __file__ (3 niveis
+        # acima de pipeline/comportamento/), nao de root_dir do csv_path.
+        modulo_dir = os.path.dirname(os.path.abspath(__file__))
+        workspace_root = os.path.abspath(os.path.join(modulo_dir, "..", "..", ".."))
         pastas_busca = [
-            root_dir,
-            os.path.join(root_dir, "LAC_NOCI"),
-            os.path.join(root_dir, "EXPLORACAO_OBJETOS"),
+            os.path.dirname(os.path.abspath(self.csv_path)),
+            os.path.join(workspace_root, "LAC_NOCI"),
+            os.path.join(workspace_root, "EXPLORACAO_OBJETOS"),
             self.config.get("ultima_pasta_videos", "")
         ]
         exts = (".mpg", ".mpeg", ".mp4", ".avi", ".mkv", ".mov", ".wmv")

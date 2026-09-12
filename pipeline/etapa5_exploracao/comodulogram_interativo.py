@@ -320,7 +320,7 @@ def painel_fooof(ax, fm, cor_ap, cor_flat, cor_pico, faixa_pico, rotulo, fit_ran
         # empilha o rótulo em níveis verticais quando picos ficam a <15 Hz
         # um do outro (senão o texto se sobrepõe -- ex.: cluster de
         # harmônicos entre 150-210 Hz no painel gama/HG)
-        DIST_MIN_HZ = 15.0
+        DIST_MIN_HZ = 20.0
         cf_por_nivel = []  # último cf colocado em cada nível
         nivel_de_cada_pico = []
         for cf in picos_na_faixa:
@@ -346,15 +346,20 @@ def painel_fooof(ax, fm, cor_ap, cor_flat, cor_pico, faixa_pico, rotulo, fit_ran
     knee_ = fm.get_params("aperiodic_params")[1]
     r2_ = fm.get_params("r_squared")
     knee_ok = _knee_valido(knee_, exp_, fit_range)
-    texto = (f"$R^2$={r2_:.3f}\nExpoente={exp_:.2f}\nKnee={knee_:.1f}\n"
-             f"Knee válido={'Sim' if knee_ok else 'Não'}")
-    ax.text(0.97, 0.95, texto, transform=ax.transAxes, fontsize=8, ha="right", va="top",
-            bbox=dict(boxstyle="round,pad=0.4", facecolor="#f8f9fa", edgecolor="#bdc3c7", alpha=0.95))
-
-    ax.set_title(f"FOOOF {rotulo} (knee)")
+    # Estatisticas no TITULO (fora da area de dados) em vez de caixa de texto
+    # flutuante em coordenada de eixo -- uma caixa em (0.97,0.95) colide com
+    # os rotulos de pico quando varios niveis se empilham (painel pequeno +
+    # cluster denso de picos), pois os rotulos sobem em coordenada de DADO
+    # mas a caixa fica fixa em coordenada de EIXO. Titulo nunca colide.
+    texto = (f"$R^2$={r2_:.3f}  Expoente={exp_:.2f}  Knee={knee_:.1f}  "
+             f"({'knee válido' if knee_ok else 'knee INVÁLIDO'})")
+    ax.set_title(f"FOOOF {rotulo} (knee)\n{texto}", fontsize=10)
     ax.set_xlabel("Frequência (Hz)")
     ax.set_ylabel(r"Log$_{10}$ Potência")
-    ax.legend(fontsize=8)
+    # loc fixo (nao "best"): as curvas decaem alto-esquerda -> baixo-direita
+    # e os rotulos de pico empilhados ocupam a faixa de cima -- lower right
+    # e a regiao consistentemente mais vazia, evitando colisao com ambos
+    ax.legend(fontsize=8, loc="lower right")
     ax.grid(alpha=0.3, linestyle=":")
 
 

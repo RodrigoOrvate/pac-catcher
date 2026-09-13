@@ -62,14 +62,11 @@ prever_pac_tempo_real.py ─► janela deslizante 10 s / passo 1 s → P(PAC) �
 | `analisar_pre_evento.py` | Extrai os 10 s anteriores a cada vencedor de todos os `vencedores.csv` (schema legado, não usado pelos scripts abaixo) | `vencedores.csv` → `raw_*.csv` + `pre_*.png` |
 | `treinar_preditor.py` | Treina RandomForest com surrogates (otimista, schema legado) | `ANALISE_PRE_EVENTO/raw_*.csv` → `modelo_pac.pkl` |
 | `validar_preditor.py` | Features espectrais/PAC (energia, MI/MVL no par oficial, footprint) vs. controles reais, LOOCV honesto | `resultados/candidatos_vencedores_OURO_PURIFICADO_v2.csv` + `.ns2` → relatório; re-salva `modelo_pac.pkl` |
+| `analisar_janelas_ultracurtas.py` | Testa precursores ultracurtos (1s, 2s, 3s) e onset no LFP bruto vs controles pareados | `candidatos_vencedores_OURO_PURIFICADO_v2.csv` + `.ns2` → relatório estatístico |
 | `preditor_estado_comportamental.py` | Estado comportamental + potência teta da janela anterior, validação cruzada 5-fold | `resultados/dataset_mestre_COM_COMPORTAMENTO.csv` + `.ns2` → relatório; salva `modelo_estado_comportamental.pkl` |
-| `prever_pac_tempo_real.py` | Preditor em tempo real/replay; `dispara_ttl()` é plugável | `.ns2` → P(PAC) por janela + disparo TTL |
+| `prever_pac_tempo_real.py` | Gating de estado em tempo real/replay usando o modelo consolidado; `dispara_ttl()` é plugável | `.ns2` / streaming → P(PAC) por janela + disparo TTL |
 
-`analisar_pre_evento.py`/`treinar_preditor.py` ficaram no schema antigo
-(`RESULTADOS/vencedores.csv`, ~10 eventos) e não foram atualizados — o
-caminho validado hoje é `validar_preditor.py` (retreina e re-salva o modelo
-final sozinho, sem precisar dos dois primeiros) e o novo
-`preditor_estado_comportamental.py`.
+Para síntese teórica completa formatada para a dissertação de mestrado, consulte `docs/sintese_investigacao_preditor_pac.md`.
 
 ## Features usadas
 

@@ -52,15 +52,29 @@ Para testar se o precursor no LFP existe mas atua em escalas temporais imediatas
 
 ### Testes Estatísticos Univariados (Pré-evento vs. Controle Real)
 
-| Janela / Condição | Métrica | Mediana Pré | Mediana Ctrl | $\Delta$ (%) | $p$-Wilcoxon (Pareado) | $p$-MannWhitney | Signif. |
-|---|---|---|---|---|---|---|---|
-| **Pré 3s** $[-3\text{s}, 0\text{s}]$ | Teta Rápida (7–10 Hz) | $1,668 \times 10^4$ | $1,514 \times 10^4$ | $+10,2\%$ | **$0,0476$** | $0,616$ | $*$ |
-| **Pré 3s** $[-3\text{s}, 0\text{s}]$ | Gama Rápida (60–90 Hz) | $172,3$ | $153,3$ | $+12,4\%$ | **$0,0166$** | $0,346$ | $*$ |
-| **Pré 2s** $[-2\text{s}, 0\text{s}]$ | Teta Rápida (7–10 Hz) | $1,565 \times 10^4$ | $1,485 \times 10^4$ | $+5,4\%$ | **$0,0482$** | $0,568$ | $*$ |
-| **Pré 1s** $[-1\text{s}, 0\text{s}]$ | Teta Rápida (7–10 Hz) | $1,600 \times 10^4$ | $1,441 \times 10^4$ | $+11,1\%$ | **$0,0459$** | $0,437$ | $*$ |
-| **Tendência (Slope)** | Inclinação Teta $[-3\text{s} \to -1\text{s}]$ | $+110,3$ | $-170,2$ | — | **$0,0247$** | $0,089$ | $*$ |
-| **Onset 1s** $[0\text{s}, +1\text{s}]$ | Gama Lenta (30–55 Hz) | $990,1$ | $790,0$ | $+25,3\%$ | **$0,0058$** | $0,399$ | $**$ |
-| **Onset 2s** $[0\text{s}, +2\text{s}]$ | Teta Rápida (7–10 Hz) | $1,727 \times 10^4$ | $1,471 \times 10^4$ | $+17,4\%$ | **$0,0084$** | $0,391$ | $**$ |
+> **CORREÇÃO METODOLÓGICA (13/09/2026):** a versão original desta tabela reportava
+> significância a partir do $p$-Wilcoxon bruto de cada linha isoladamente, mas a
+> família de testes desta seção tem **31 comparações** (5 janelas × 6 métricas +
+> 1 tendência) — ao nível $\alpha=0,05$ sem correção, o número esperado de falsos
+> positivos só por acaso já é ~1,5, e o padrão observado (10/31 com $p<0,05$,
+> todos entre $0,005$ e $0,048$) é consistente com isso. Aplicada correção
+> **Benjamini-Hochberg (FDR)** sobre a família inteira: **0 de 31 testes
+> sobrevivem** (ver `analisar_janelas_ultracurtas.py::bh_fdr`). A coluna "Signif."
+> abaixo foi atualizada para refletir o resultado corrigido — os $p$ brutos
+> ficam só para registro, não como evidência confirmatória.
+
+| Janela / Condição | Métrica | Mediana Pré | Mediana Ctrl | $\Delta$ (%) | $p$-Wilcoxon (bruto) | $p$-MannWhitney | $p$-BH (fam. 31) | Signif. (BH) |
+|---|---|---|---|---|---|---|---|---|
+| **Pré 3s** $[-3\text{s}, 0\text{s}]$ | Teta Rápida (7–10 Hz) | $1,565 \times 10^4$ | $1,485 \times 10^4$ | $+5,4\%$ | $0,0482$ | $0,568$ | $0,149$ | não |
+| **Pré 3s** $[-3\text{s}, 0\text{s}]$ | Gama Rápida (60–90 Hz) | $174,1$ | $160,5$ | $+8,5\%$ | $0,0355$ | $0,339$ | $0,149$ | não |
+| **Pré 1s** $[-1\text{s}, 0\text{s}]$ | Teta Rápida (7–10 Hz) | $1,600 \times 10^4$ | $1,441 \times 10^4$ | $+11,1\%$ | $0,0459$ | $0,437$ | $0,149$ | não |
+| **Tendência (Slope)** | Inclinação Teta $[-3\text{s} \to -1\text{s}]$ | $+110,3$ | $-170,2$ | — | $0,0247$ | $0,090$ | $0,149$ | não |
+| **Onset 1s** $[0\text{s}, +1\text{s}]$ | Gama Lenta (30–55 Hz) | $990,1$ | $790,0$ | $+25,3\%$ | $0,0058$ | $0,399$ | $0,087$ | não |
+| **Onset 2s** $[0\text{s}, +2\text{s}]$ | Teta Rápida (7–10 Hz) | $1,727 \times 10^4$ | $1,471 \times 10^4$ | $+17,4\%$ | $0,0084$ | $0,391$ | $0,087$ | não |
+
+(Tabela completa das 31 linhas em `analisar_janelas_ultracurtas.py`, saída de
+console — as 5 linhas acima são as de menor $p$-BH, isto é, as "quase
+sobreviventes"; nenhuma cruza $\alpha=0,05$.)
 
 ### Classificação Multivariada (Stratified 5-Fold CV / LOOCV)
 
@@ -73,9 +87,10 @@ Para testar se o precursor no LFP existe mas atua em escalas temporais imediatas
 | **Onset 1s** $[0\text{s}, +1\text{s}]$ | $0,500$ | $0,466$ | $0,500$ | $0,489$ | $0,495$ |
 | **Onset 2s** $[0\text{s}, +2\text{s}]$ | $0,484$ | $0,467$ | $0,484$ | $0,489$ | $0,487$ |
 
-### Conclusão Parcial 2
-1. **Assinatura Fisiológica Pareada Real:** O teste pareado de Wilcoxon revelou que, intra-sessão, existe uma aceleração sutil e significativa da potência teta tipo 1 nos últimos segundos antes do evento ($p = 0,0247$ na inclinação da trajetória).
-2. **Inviabilidade Classificatória:** Devido à variabilidade inter-individual basal de impedância e camadas de CA1, essa assinatura não resiste à generalização entre sessões e animais ($p_{\text{Mann-Whitney}} > 0,35$). Todos os modelos classificatórios multivariados em janelas de 1 a 3 segundos permaneceram no nível de chance ($\text{AUC} \approx 0,38 - 0,47$).
+### Conclusão Parcial 2 (corrigida)
+1. **Nenhuma assinatura fisiológica sobrevive a correção por múltiplas comparações.** A versão original desta seção apontava a inclinação da potência teta ($p=0,0247$ bruto) como "aceleração sutil e significativa"; corrigido por Benjamini-Hochberg sobre os 31 testes da família, esse e todos os demais resultados desaparecem ($p$-BH mínimo $=0,087$). O padrão de $p$-valores brutos concentrados logo abaixo de $0,05$ é o assinatura clássica de um efeito nulo com múltiplas tentativas, não de um sinal real.
+2. **Isso é consistente, não contraditório, com a Investigação 1 e com a inviabilidade classificatória já observada aqui**: os modelos multivariados em janelas de 1 a 3s já ficavam no nível de chance ($\text{AUC} \approx 0,38-0,47$) mesmo antes da correção — o teste univariado corrigido apenas remove a única peça desta seção que parecia (falsamente) destoar disso.
+3. **Conclusão honesta:** nenhuma evidência desta investigação (10s, 1-3s, ou onset) sustenta um precursor eletrofisiológico local detectável no LFP bruto. O achado real da dissertação é o da Investigação 3 (estado comportamental).
 
 ---
 

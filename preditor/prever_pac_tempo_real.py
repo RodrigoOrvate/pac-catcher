@@ -151,13 +151,29 @@ def carrega_modelo(caminho_modelo=None):
         return obj, [], 0.50
 
 
+def resolve_canal(canal_arg, canal_ids):
+    """Aceita nome nativo ('chan16') OU indice 1-based numerico ('16'/16),
+    igual a convencao usada no resto do pipeline (dataset mestre). Falha
+    alto em vez de cair silenciosamente no canal 0 quando nao resolve --
+    mesmo tipo de bug ja corrigido em comodulogram_interativo.py/
+    figura_apresentacao.py (resolucao por nome nativo cega ao formato
+    1-based do dataset mestre)."""
+    s = str(canal_arg)
+    if s in canal_ids:
+        return canal_ids.index(s)
+    try:
+        idx = int(s.lower().replace("chan", "")) - 1
+    except ValueError:
+        raise ValueError(f"Canal {canal_arg!r} nao reconhecido. Canais nativos: {canal_ids}")
+    if not (0 <= idx < len(canal_ids)):
+        raise ValueError(f"Canal {canal_arg!r} fora do range (1-{len(canal_ids)}).")
+    return idx
+
+
 def modulo_replay(ns2_path, canal_nome, modelo, features, limiar, comportamento="Exploração / Locomoção"):
     """Roda a janela deslizante sobre um .ns2 inteiro e avalia decisões."""
     dados, fs, canal_ids = carrega_dados(ns2_path)
-    if canal_nome in canal_ids:
-        ch = canal_ids.index(canal_nome)
-    else:
-        ch = 0
+    ch = resolve_canal(canal_nome, canal_ids)
     n_amostras = JANELA_S * int(fs)
     passo = PASSO_S * int(fs)
     print(f"Replay: {os.path.basename(ns2_path)} | canal {canal_nome} | "

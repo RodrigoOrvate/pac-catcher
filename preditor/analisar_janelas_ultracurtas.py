@@ -182,10 +182,29 @@ def processar_eventos():
     return registros
 
 
+def bh_fdr(p_valores, alpha=0.05):
+    """Benjamini-Hochberg sobre uma lista de p-valores -- mesma logica de
+    bh_fdr_mapa em comodulogram.py, reimplementada aqui p/ vetor 1D porque
+    a familia de teste aqui e' todas as (janela x metrica) juntas, nao uma
+    grade fase x amplitude."""
+    p = np.asarray(p_valores, dtype=float)
+    n = len(p)
+    ordem = np.argsort(p)
+    ranks = np.arange(1, n + 1)
+    p_ajustado = np.empty(n)
+    p_ajustado[ordem] = np.minimum.accumulate((p[ordem] * n / ranks)[::-1])[::-1]
+    p_ajustado = np.clip(p_ajustado, 0, 1)
+    return p_ajustado, p_ajustado <= alpha
+
+
 def rodar_testes_estatisticos(registros):
     print("\n" + "=" * 75)
     print("TESTE UNIVARIADO: Wilcoxon Pareado e Mann-Whitney (Pré-evento vs Controle)")
     print("=" * 75)
+    print("AVISO: 30 testes univariados nesta secao (5 janelas x 6 metricas) + 1 de")
+    print("tendencia = 31 testes na familia. p brutos SEM correcao inflam falso-positivo")
+    print("(~1,5 esperados por acaso so' com alpha=0.05). Corrigido via Benjamini-Hochberg")
+    print("(FDR) sobre a familia INTEIRA de 31 testes -- coluna 'p_BH' e 'Sig.BH' abaixo.")
 
     janelas = [
         ("Pré 3s [-3s, 0s]", "ev_pre3", "ct_pre3"),
@@ -194,45 +213,63 @@ def rodar_testes_estatisticos(registros):
         ("Onset 1s [0s, +1s]", "ev_on1", "ct_on1"),
         ("Onset 2s [0s, +2s]", "ev_on2", "ct_on2"),
     ]
-
     metricas = ["theta_rapida", "theta_lenta", "gamma_lenta", "gamma_rapida", "razao_tg", "energia_total"]
 
+    # PASSADA 1: calcula todos os p-valores brutos da familia inteira (30 + 1 slope)
+    linhas = []
     for nome_jan, chave_ev, chave_ct in janelas:
-        print(f"\n--- Janela: {nome_jan} (N={len(registros)} pares) ---")
-        print(f"{'Métrica':<16} | {'Med. Pré':<10} | {'Med. Ctrl':<10} | {'Diff (%)':<8} | {'p-Wilcoxon':<12} | {'p-MannWhitney':<13} | {'Signif?'}")
-        print("-" * 88)
         for m in metricas:
             vals_ev = np.array([r[chave_ev][m] for r in registros])
             vals_ct = np.array([r[chave_ct][m] for r in registros])
-
-            med_ev = np.median(vals_ev)
-            med_ct = np.median(vals_ct)
+            med_ev, med_ct = np.median(vals_ev), np.median(vals_ct)
             diff_pct = ((med_ev - med_ct) / (med_ct + 1e-12)) * 100
-
-            # Wilcoxon pareado
             try:
                 _, p_wilc = wilcoxon(vals_ev, vals_ct)
             except Exception:
                 p_wilc = np.nan
-
-            # Mann-Whitney
             try:
                 _, p_mw = mannwhitneyu(vals_ev, vals_ct, alternative='two-sided')
             except Exception:
                 p_mw = np.nan
+            linhas.append({"janela": nome_jan, "metrica": m, "med_ev": med_ev, "med_ct": med_ct,
+                            "diff_pct": diff_pct, "p_wilc": p_wilc, "p_mw": p_mw})
 
-            sig = "***" if p_wilc < 0.001 else ("**" if p_wilc < 0.01 else ("*" if p_wilc < 0.05 else "ns"))
-            print(f"{m:<16} | {med_ev:<10.4g} | {med_ct:<10.4g} | {diff_pct:+7.1f}% | {p_wilc:<12.4e} | {p_mw:<13.4e} | {sig}")
-
-    # Teste para a tendência da inclinação
-    print(f"\n--- Tendência de Inclinação da Potência Teta [-3s -> -1s] ---")
     slopes_ev = np.array([r["ev_slope_teta"] for r in registros])
     slopes_ct = np.array([r["ct_slope_teta"] for r in registros])
     _, p_w_slope = wilcoxon(slopes_ev, slopes_ct)
     _, p_mw_slope = mannwhitneyu(slopes_ev, slopes_ct)
-    print(f"Mediana slope pré-evento: {np.median(slopes_ev):.4g}")
-    print(f"Mediana slope controle:   {np.median(slopes_ct):.4g}")
-    print(f"Wilcoxon p={p_w_slope:.4e}, Mann-Whitney p={p_mw_slope:.4e}")
+    linhas.append({"janela": "Tendencia [-3s->-1s]", "metrica": "slope_theta_rapida",
+                    "med_ev": np.median(slopes_ev), "med_ct": np.median(slopes_ct),
+                    "diff_pct": np.nan, "p_wilc": p_w_slope, "p_mw": p_mw_slope})
+
+    # PASSADA 2: corrige a familia inteira (31 testes) de uma vez
+    p_wilc_todos = [l["p_wilc"] for l in linhas]
+    p_bh, sig_bh = bh_fdr(p_wilc_todos)
+    for l, pb, sb in zip(linhas, p_bh, sig_bh):
+        l["p_bh"] = pb
+        l["sig_bh"] = sb
+
+    # Impressao
+    jan_atual = None
+    for l in linhas:
+        if l["janela"] != jan_atual:
+            jan_atual = l["janela"]
+            print(f"\n--- Janela: {jan_atual} (N={len(registros)} pares) ---")
+            print(f"{'Métrica':<20} | {'Med.Pré':<10} | {'Med.Ctrl':<10} | {'Diff%':<7} | "
+                  f"{'p_Wilcoxon':<11} | {'p_MannW':<11} | {'p_BH(fam.31)':<12} | {'Sig.BH'}")
+            print("-" * 105)
+        diff_str = f"{l['diff_pct']:+6.1f}%" if not np.isnan(l["diff_pct"]) else "   n/a"
+        print(f"{l['metrica']:<20} | {l['med_ev']:<10.4g} | {l['med_ct']:<10.4g} | {diff_str:<7} | "
+              f"{l['p_wilc']:<11.4e} | {l['p_mw']:<11.4e} | {l['p_bh']:<12.4e} | "
+              f"{'SIM' if l['sig_bh'] else 'nao'}")
+
+    n_sig_bruto = sum(1 for l in linhas if l["p_wilc"] < 0.05)
+    n_sig_bh = sum(1 for l in linhas if l["sig_bh"])
+    print(f"\n=== RESUMO: {n_sig_bruto}/{len(linhas)} testes com p_Wilcoxon bruto < 0.05; "
+          f"{n_sig_bh}/{len(linhas)} sobrevivem a correcao BH-FDR (familia completa). ===")
+    if n_sig_bh == 0:
+        print("NENHUM resultado desta secao sobrevive a correcao por multiplas comparacoes.")
+        print("Tratar os achados com p bruto < 0.05 como EXPLORATORIOS, nao confirmatorios.")
 
 
 def avaliar_classificadores(registros):

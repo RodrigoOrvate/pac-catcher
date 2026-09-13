@@ -27,6 +27,7 @@ import joblib
 from scipy.signal import welch
 
 BASE = r"C:\acoplamento_theta-gamma"
+BASE_LAC_NOCI = os.path.join(BASE, "LAC_NOCI")
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(SCRIPT_DIR, '..'))
 from pac_core.io import carrega_dados
@@ -35,6 +36,7 @@ FS = 1000
 PRE_WINDOW = 10
 CONTROL_OFFSET_S = 60   # janela de controle começa event_time + offset
 FEATURES = ['Energia', 'Theta_Energy', 'Gamma_Energy', 'Ratio_TG', 'Theta_Peak']
+CSV_VENCEDORES = os.path.join(SCRIPT_DIR, '..', 'resultados', 'candidatos_vencedores_OURO_PURIFICADO_v2.csv')
 
 
 def extrair_features(window_data):
@@ -53,76 +55,68 @@ def extrair_features(window_data):
     return np.array([energia, te, ge, te / (ge + 1e-6), tp])
 
 
-def localizar_ns2(sessao_dir, filename):
-    for sub in ("Basal antes da infusao", ""):
-        p = os.path.join(sessao_dir, sub, filename) if sub else os.path.join(sessao_dir, filename)
-        if os.path.exists(p):
-            return p
+def resolve_pasta_basal(sessao_str, arquivo):
+    """Mesma lógica usada em gera_galeria_top5.py / checa_desalinhamento_190.py."""
+    nome_pasta = sessao_str
+    sufixo = "_Basal antes da infusao"
+    if nome_pasta.endswith(sufixo):
+        nome_pasta = nome_pasta[: -len(sufixo)]
+    candidatos = glob.glob(os.path.join(BASE_LAC_NOCI, "*", nome_pasta, "Basal antes da infusao"))
+    candidatos += [c for c in glob.glob(os.path.join(BASE_LAC_NOCI, "*", nome_pasta)) if c not in candidatos]
+    for c in candidatos:
+        if os.path.isfile(os.path.join(c, arquivo)):
+            return c
     return None
 
 
-def resolver_canal(canal_name, canal_ids):
-    if canal_name in canal_ids:
-        return canal_ids.index(canal_name)
-    try:
-        num = str(canal_name).replace('chan', '')
-        for i, cid in enumerate(canal_ids):
-            if num in str(cid):
-                return i
-    except ValueError:
-        pass
-    return 0
-
-
 def carregar_positivos_e_controles():
-    """Roda sobre todos os vencedores.csv: pré-evento = positivo, e uma janela
-    'controle' real no MESMO arquivo (event_time + 60 s) = negativo."""
+    """Le o resultado ATUAL do pipeline (candidatos_vencedores_OURO_PURIFICADO_v2.csv,
+    190 eventos pos-purificacao por notch) em vez do legado RESULTADOS/vencedores.csv
+    (schema antigo, ~10 eventos). Pre-evento = positivo, janela 'controle' real no
+    MESMO arquivo (event_time + 60 s) = negativo."""
     X, y, meta = [], [], []
-    venc_files = glob.glob(os.path.join(BASE, "**", "RESULTADOS", "vencedores.csv"), recursive=True)
+    df = pd.read_csv(CSV_VENCEDORES)
+    _cache = {}
 
-    for v_csv in venc_files:
-        sessao_dir = os.path.dirname(os.path.dirname(v_csv))
-        try:
-            df = pd.read_csv(v_csv)
-        except Exception:
+    for _, row in df.iterrows():
+        canal_idx = int(row['canal']) - 1  # convencao 1-based do dataset mestre
+        t_evento = float(row['janela_ini_s'])
+        pasta = resolve_pasta_basal(str(row['sessao']), str(row['arquivo']))
+        if pasta is None:
+            print(f"  [skip] sessao={row['sessao']!r} arquivo={row['arquivo']!r} nao resolvido")
             continue
-        if 'inicio_s' not in df.columns or 'arquivo' not in df.columns:
+        ns2_path = os.path.join(pasta, row['arquivo'])
+
+        if ns2_path not in _cache:
+            _cache[ns2_path] = carrega_dados(ns2_path)
+        dados, fs, canal_ids = _cache[ns2_path]
+        if not (0 <= canal_idx < dados.shape[1]):
+            print(f"  [skip] canal {row['canal']} fora do range em {ns2_path}")
             continue
 
-        for _, row in df.iterrows():
-            canal_name = row['canal']
-            t_evento = float(row['inicio_s'])
-            ns2_path = localizar_ns2(sessao_dir, row['arquivo'])
-            if not ns2_path:
-                print(f"  [skip] sem arquivo p/ {os.path.basename(v_csv)} chan{canal_name}")
-                continue
+        # POSITIVO: 10 s antes do evento
+        i0 = int((t_evento - PRE_WINDOW) * fs)
+        i1 = i0 + int(PRE_WINDOW * fs)
+        if i0 >= 0 and i1 <= dados.shape[0]:
+            X.append(extrair_features(dados[i0:i1, [canal_idx]]))
+            y.append(1)
+            meta.append((os.path.basename(ns2_path), row['canal'], 'pre'))
 
-            dados, fs, canal_ids = carrega_dados(ns2_path)
-            ch = resolver_canal(canal_name, canal_ids)
-
-            # POSITIVO: 10 s antes do evento
-            i0 = int((t_evento - PRE_WINDOW) * fs)
-            i1 = i0 + int(PRE_WINDOW * fs)
-            if i0 >= 0 and i1 <= dados.shape[0]:
-                X.append(extrair_features(dados[i0:i1]))
-                y.append(1)
-                meta.append((os.path.basename(ns2_path), canal_name, 'pre'))
-
-            # CONTROLE (negativo real): 10 s em outro instante do mesmo arquivo
-            c0 = int((t_evento + CONTROL_OFFSET_S) * fs)
+        # CONTROLE (negativo real): 10 s em outro instante do mesmo arquivo
+        c0 = int((t_evento + CONTROL_OFFSET_S) * fs)
+        c1 = c0 + int(PRE_WINDOW * fs)
+        if c1 <= dados.shape[0]:
+            X.append(extrair_features(dados[c0:c1, [canal_idx]]))
+            y.append(0)
+            meta.append((os.path.basename(ns2_path), row['canal'], 'controle'))
+        else:
+            # se o offset estoura o arquivo, pega mais cedo
+            c0 = max(0, int((t_evento - CONTROL_OFFSET_S - PRE_WINDOW) * fs))
             c1 = c0 + int(PRE_WINDOW * fs)
             if c1 <= dados.shape[0]:
-                X.append(extrair_features(dados[c0:c1]))
+                X.append(extrair_features(dados[c0:c1, [canal_idx]]))
                 y.append(0)
-                meta.append((os.path.basename(ns2_path), canal_name, 'controle'))
-            else:
-                # se o offset estoura o arquivo, pega mais cedo
-                c0 = max(0, int((t_evento - CONTROL_OFFSET_S - PRE_WINDOW) * fs))
-                c1 = c0 + int(PRE_WINDOW * fs)
-                if c1 <= dados.shape[0]:
-                    X.append(extrair_features(dados[c0:c1]))
-                    y.append(0)
-                    meta.append((os.path.basename(ns2_path), canal_name, 'controle'))
+                meta.append((os.path.basename(ns2_path), row['canal'], 'controle'))
 
     return np.array(X), np.array(y), meta
 
@@ -178,6 +172,10 @@ def main():
     out = os.path.join(SCRIPT_DIR, 'modelo_pac.pkl')
     joblib.dump(clf, out)
     print(f"\nModelo final treinado nos dados reais salvo em: {out}")
+
+    print("\nImportancia das features (modelo final, todos os dados):")
+    for feat, imp in sorted(zip(FEATURES, clf.feature_importances_), key=lambda t: -t[1]):
+        print(f"  {feat}: {imp:.4f}")
 
 
 if __name__ == "__main__":

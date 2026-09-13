@@ -50,7 +50,7 @@ import scipy.signal as signal
 from scipy.signal import welch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-from pac_core.filtering import filtra_sinal
+from pac_core.filtering import filtra_sinal, aplica_notch
 from pac_core.pac_metrics import (
     _mi_de_bin_idx, calcula_mi as calcula_mi_nucleo,
     calcula_mi_com_surrogates, z_score_mi, p_empirico_mi,
@@ -264,6 +264,16 @@ def varre_canal(sinal, fs, window_s=10.0, step_s=5.0, n_surr=200,
     """
     if pares is None:
         pares = {"theta_gamma": BAND_PAIRS["theta_gamma"]}
+
+    # Notch multi-harmonico (60/120/180/240Hz) ANTES de qualquer filtragem
+    # de banda -- auditoria 2026-09: faltava aqui (e em refina_candidatos.py),
+    # apesar da regra #1 do CLAUDE.md ("Notch 60Hz em tudo"). Ruido de linha
+    # medido no dado bruto chega a ~4600x o fundo em 240Hz; sem notch, ele
+    # contamina qualquer banda de amplitude cuja largura encoste num
+    # harmonico (theta_gamma inclui 60Hz, theta_hg inclui 120Hz, theta_hfo
+    # inclui 180/240Hz). Aplicado uma vez no canal inteiro, nao por janela
+    # (mais barato; resultado equivalente, o filtro e linear).
+    sinal = aplica_notch(sinal, fs, freqs_notch=[60, 120, 180, 240])
 
     win    = int(window_s * fs)
     step   = int(step_s   * fs)

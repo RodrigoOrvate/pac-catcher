@@ -45,7 +45,7 @@ import scipy.stats as stats
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from pac_core.io import le_ns2, fatia_janela
 from pipeline.etapa1_triagem.triagem_pac import BAND_PAIRS, detecta_transiente, correlacao_gama_ruido
-from pac_core.filtering import filtra_sinal
+from pac_core.filtering import filtra_sinal, aplica_notch
 from pac_core.pac_metrics import calcula_mi_com_surrogates, z_score_mi
 
 try:
@@ -293,7 +293,17 @@ def main():
                 trecho_bruto = fatia_janela(
                     dados[:, canal_idx], fs, row.janela_ini_s, row.janela_fim_s
                 )
-                trecho = trecho_bruto.astype(float)
+                # Notch multi-harmonico (60/120/180/240Hz) -- auditoria 2026-09:
+                # faltava aqui, apesar da regra #1 do CLAUDE.md ("Notch 60Hz em
+                # tudo"). Ruido de linha no dado bruto chega a ~4600x o fundo em
+                # 240Hz; sem notch, contamina qualquer banda de amplitude que
+                # encoste num harmonico (theta_gamma inclui 60Hz, theta_hg
+                # inclui 120Hz, theta_hfo inclui 180/240Hz). `trecho` (notch
+                # aplicado) alimenta fase/amplitude/kurtose_banda(); so
+                # proxy_saturacao() abaixo usa trecho_bruto (sem notch) de
+                # proposito -- deteccao de clipping do ADC precisa dos valores
+                # brutos, um notch atenuaria a amplitude nas amostras saturadas.
+                trecho = aplica_notch(trecho_bruto.astype(float), fs, freqs_notch=[60, 120, 180, 240])
 
                 # Fase: sempre theta 4-8 Hz
                 lfp_fase = filtra_sinal(trecho, fase_band[0], fase_band[1], fs)

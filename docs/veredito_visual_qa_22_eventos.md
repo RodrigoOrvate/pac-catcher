@@ -9,6 +9,20 @@
 
 ---
 
+## ⚠️ CORREÇÃO POSTERIOR (2026-09, depois de fechado este documento)
+
+O notebook usado para gerar estas 22 figuras tinha um bug: o painel de comodulograma calculava `calcula_comodulograma_z(seg, ...)` no sinal **cru** (sem notch), não em `seg_limpo`. Isso produzia manchas fantasma de altíssimo z exatamente nas células de amplitude que encostam nos harmônicos de linha (60/120/180/240Hz) — em especial a faixa **235-255Hz**, que aparece descrita como "estrutura real" em vários itens abaixo. Corrigido, revalidado nos 190 sobreviventes finais (`OURO_PURIFICADO_v2.csv`) e usado para reprocessar especificamente os itens afetados:
+
+- **Item 5** (canal16, z=9.92): a descrição original ("bloco forte em 235-255Hz, longe do X") **era o artefato do bug**. Com notch correto: `z_oficial_cell=7.88`, e essa É a célula mais forte do mapa inteiro (`z_max_mapa=7.88` no mesmo ponto) — **sem desalinhamento nenhum**. Veredito revisado: **ROBUSTO**, não "ATENÇÃO".
+- **Item 9** (canal4, MTESC03): o "pico real em 245Hz" descrito era o mesmo artefato. Esse evento específico **não sobreviveu** à purificação final (excluído por robustez ou notch no refino) — o veredito original fica sem efeito prático, mas a leitura de "onde estava a força real" estava errada.
+- **Item 10** (canal2, MTESC03): o bloco de z~20-26 em 230-255Hz também era o artefato. Reprocessado com notch correto: `z_oficial_cell=9.43` (**sobrevive ao FDR**, diferente do que a descrição original sugeria), mas ainda existe uma célula mais forte em outro lugar (`z_max_mapa=12.98` em fase=10Hz×amp=80Hz — não mais em 245Hz). Desalinhamento confirmado, só que a localização e a severidade descritas originalmente estavam erradas.
+- **Item 17** (canal12, MTESC04, z=3.89): a janela específica deste item **não sobreviveu** à purificação final — moot.
+- **Item 22** (canal32, MTESC03): já confirmado antes na conversa — z=59 (artefato) → z=5.8 (corrigido). Não sobreviveu à purificação final de qualquer forma.
+
+**Conclusão da correção**: 2 dos 5 itens que citavam a faixa 235-255Hz (5 e 10) tiveram a leitura de comodulograma revisada; o item 5 muda de veredito (ATENÇÃO → ROBUSTO); os outros 3 (9, 17, 22) já foram excluídos da lista final por outros motivos, então a correção é só de precisão histórica, sem efeito no resultado. Ver `resultados/_checagem_desalinhamento_190.csv` para os números completos dos 190 sobreviventes finais.
+
+---
+
 ## 1. MTESC04 | Locomoção | canal 14 | theta_hg | z=10.47 | 20240709-141215-001.ns2 [45-55s]
 
 LFP denso, sem esteps/saturação visíveis. FOOOF teta: pico rotulado 5.63Hz (baixo pra Locomoção, esperado 7.5-8.5, mas dentro da faixa teta; R²=0.916). FOOOF gama/HG: R²=0.994, vários picos (53-202Hz), nenhum espetado em 60/120Hz. Comodulograma nesta execução veio branco (z_pico bruto=6.25 em ~7×90Hz) — já sabemos por 8 reruns prévios que esse evento raramente vem branco (~1/16), então é uma variação estatística normal, não reprovação. Timeline: dois picos de MI nítidos (~6s, ~9.5s) coincidindo com os dois maiores picos do envelope de teta.
@@ -151,7 +165,7 @@ Este é o evento de footprint difuso (muitos canais coativos). LFP sem espículo
 | 2 | MTESC04 canal11 Loc theta_gamma z=7.95 | LIMÍTROFE (fraco/disperso) |
 | 3 | MTESC04 canal11 Loc theta_hg z=6.67 | PROVÁVEL |
 | 4 | MTESC04 canal30 Repouso z=11.50 | ROBUSTO |
-| 5 | MTESC04 canal16 Repouso z=9.92 | ATENÇÃO (banda larga?) |
+| 5 | MTESC04 canal16 Repouso z=9.92 | ~~ATENÇÃO~~ **ROBUSTO** (correção: era bug de notch) |
 | 6 | MTESC04 canal12 Repouso z=7.15 | PROVÁVEL |
 | 7 | MTESC05 canal12 Loc z=7.95 | LIMÍTROFE (discrepância) |
 | 8 | MTESC05 canal16 MovCabeça z=6.39 | ATENÇÃO (EMG?) |

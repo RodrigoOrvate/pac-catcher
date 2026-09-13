@@ -59,11 +59,11 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(SCRIPT_DIR, '..'))
 from pac_core.io import carrega_dados
 from pac_core.filtering import aplica_notch
+from pac_core.workspace import BASE_LAC_NOCI
 from pipeline.etapa4_validacao.robustez_parametros import mi_z_par
 
 NOTCH_HZ = [60.0, 120.0, 180.0, 240.0]
 
-BASE_LAC_NOCI = r"C:\acoplamento_theta-gamma\LAC_NOCI"
 CSV_DATASET_MESTRE = os.path.join(SCRIPT_DIR, '..', 'resultados', 'dataset_mestre_COM_COMPORTAMENTO.csv')
 CSV_SAIDA = os.path.join(SCRIPT_DIR, '..', 'resultados', '_preditor_estado_teta.csv')
 GAP_MAX_S = 15  # so pares onde a janela anterior e' de fato a anterior no tempo (sem buraco)

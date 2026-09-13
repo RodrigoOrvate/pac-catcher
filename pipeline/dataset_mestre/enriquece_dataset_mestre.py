@@ -51,6 +51,7 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from pac_core.io import carrega_dados, fatia_janela
+from pac_core.workspace import BASE_LAC_NOCI
 from pipeline.auditorias.utils_harmonico import extrai_cf_teta_fooof, extrai_cf_gamma_fooof
 
 CHAVE_JANELA = ["arquivo", "canal", "janela_ini_s", "janela_fim_s"]
@@ -296,7 +297,7 @@ def main():
                     help="Quais etapas rodar. Ordem de execucao e sempre fooof->portao, "
                          "independente da ordem passada aqui (nao ha dependencia real "
                          "entre as duas).")
-    ap.add_argument("--pasta_dados", default=r"C:\acoplamento_theta-gamma\LAC_NOCI",
+    ap.add_argument("--pasta_dados", default=BASE_LAC_NOCI,
                     help="Pasta raiz dos .ns2 (usado só se a etapa 'fooof' estiver ativa)")
     ap.add_argument("--janela_contexto_s", type=float, default=45.0)
     ap.add_argument("--n_workers", type=int, default=4)

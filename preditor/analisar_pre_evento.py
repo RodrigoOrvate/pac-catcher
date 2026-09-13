@@ -13,6 +13,7 @@ import sys
 # Adicionar pasta pipeline ao path para importar ns2_utils (SCRIPT/preditor/ -> SCRIPT/pipeline/)
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from pac_core.io import carrega_dados
+from pac_core.workspace import BASE_WORKSPACE
 
 PRE_WINDOW = 10
 
@@ -56,7 +57,7 @@ def load_signal_chunk(file_path, start_s, duration_s, channel_name):
         return None, None, None
 
 def process_session_vencedores():
-    base = r"C:\acoplamento_theta-gamma"
+    base = BASE_WORKSPACE
     output_dir = os.path.join(base, "ANALISE_PRE_EVENTO")
     os.makedirs(output_dir, exist_ok=True)
 

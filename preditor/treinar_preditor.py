@@ -7,10 +7,14 @@ import pandas as pd
 import numpy as np
 import glob
 import os
+import sys
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report
 import joblib
+
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+from pac_core.workspace import BASE_WORKSPACE
 
 FS = 1000
 PRE_WINDOW = 10
@@ -65,7 +69,7 @@ def _surrogate_phase_scramble(data, seed_offset=0):
 
 def load_training_data():
     """Carrega dados positivos (pré-evento) e gera negativos (baseline surrogado)."""
-    base = r"C:\acoplamento_theta-gamma\ANALISE_PRE_EVENTO"
+    base = os.path.join(BASE_WORKSPACE, "ANALISE_PRE_EVENTO")
     raw_files = glob.glob(os.path.join(base, "raw_*.csv"))
 
     X, y = [], []

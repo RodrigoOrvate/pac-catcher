@@ -20,11 +20,13 @@ import scipy.signal as signal
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from pac_core.io import carrega_dados, fatia_janela
+from pac_core.workspace import BASE_WORKSPACE, BASE_LAC_NOCI
 from pipeline.auditorias.utils_harmonico import extrai_cf_teta_fooof, extrai_cf_gamma_fooof
 from fooof import FOOOF
 
 # 1. Parâmetros e Arquivo
-ns2_path = r"C:\acoplamento_theta-gamma\LAC_NOCI\MTESC04_NOCI\MTESC04 -- 1 - infusao - 08-07-2024\Basal antes da infusao\20240708-123605-003.ns2"
+ns2_path = os.path.join(BASE_LAC_NOCI, "MTESC04_NOCI", "MTESC04 -- 1 - infusao - 08-07-2024",
+                         "Basal antes da infusao", "20240708-123605-003.ns2")
 chan_str = "chan10"
 janela_ini = 40.0
 janela_fim = 50.0
@@ -146,6 +148,6 @@ ax3.text(0.97, 0.74, texto_g, transform=ax3.transAxes, fontsize=8.5, ha='right',
          bbox=dict(boxstyle='round,pad=0.45', facecolor='#f8f9fa', edgecolor='#bdc3c7', alpha=0.95))
 
 plt.tight_layout()
-saida_png = r"C:\acoplamento_theta-gamma\comparacao_fooof_v2.png"
+saida_png = os.path.join(BASE_WORKSPACE, "comparacao_fooof_v2.png")
 fig.savefig(saida_png, dpi=200)
 print(f"Figura gerada e salva com sucesso em: {saida_png}")

@@ -40,7 +40,7 @@ desse preditor. É código `SCRIPT/` (nada de sessão).
 vencedores.csv (todas as sessões)
       │
       ▼
-analisar_pre_evento.py ──► C:\acoplamento_theta-gamma\ANALISE_PRE_EVENTO\
+analisar_pre_evento.py ──► D:\acoplamento_theta-gamma\ANALISE_PRE_EVENTO\
       │                       raw_<estudo>_<sessao>_<canal>.csv  (10 s antes do evento)
       │                       pre_*.png  (espectrogramas)
       ▼

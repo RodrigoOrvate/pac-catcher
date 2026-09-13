@@ -7,6 +7,7 @@ from scipy.signal import butter, filtfilt
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from pac_core.io import carrega_dados
+from pac_core.workspace import BASE_LAC_NOCI
 from pipeline.etapa1_triagem.preprocessa_referencia_diferencial import seleciona_pool_referencia, constroi_referencia
 from pipeline.etapa1_triagem.deteccao_ripple import detecta_eventos_ripple
 
@@ -123,7 +124,7 @@ def roda_testes_diferencial_loo(arquivo, limiar_dp=3.0, duracao_ms=15.0):
                 inspeciona_candidato(sinal_alvo - sinal_ref_loo, fs, df_loo[0], f"cand_pool{tamanho}_sem_{p}_{os.path.basename(arquivo)}.png")
 
 if __name__ == "__main__":
-    base_dir = r"C:\acoplamento_theta-gamma\MTESC04_NOCI\MTESC04 -- 1 - infusao - 08-07-2024\Basal antes da infusao"
+    base_dir = os.path.join(BASE_LAC_NOCI, "MTESC04_NOCI", "MTESC04 -- 1 - infusao - 08-07-2024", "Basal antes da infusao")
     
     roda_testes_diferencial_loo(os.path.join(base_dir, "20240708-123605-002.ns2"), limiar_dp=3.0, duracao_ms=15.0)
     roda_testes_diferencial_loo(os.path.join(base_dir, "20240708-123605-003.ns2"), limiar_dp=3.0, duracao_ms=15.0)

@@ -2,13 +2,13 @@
 
 ## O que é esta pasta
 
-**Código único do grupo de estudos** `C:\acoplamento_theta-gamma\`,
+**Código único do grupo de estudos** `D:\acoplamento_theta-gamma\`,
 compartilhado por TODOS os estudos e sessões (MTESC04/MTESC05 × NOCI/LAC e EXPLORACAO_OBJETOS).
 Nada de específico de sessão mora aqui — nem dados brutos (.ns2, .mpg), nem saídas.
 Rodar os comandos preferencialmente de dentro da pasta `SCRIPT/` ou apontando caminhos relativos ao workspace.
 
 ```
-C:\acoplamento_theta-gamma\
+D:\acoplamento_theta-gamma\
 ├── SCRIPT\                          ← ESTA pasta (código central + pipeline/ + README + CLAUDE.md)
 │   ├── pipeline/                    ← Núcleo do pipeline PAC (pacote Python, reorganizado em 2026-09
 │   │   │                               em pastas de etapa -- todo import interno é qualificado,

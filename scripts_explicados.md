@@ -384,7 +384,7 @@ sessão inteira ponto-a-ponto) não exigiu isso.
 **CLI mínima (notebook):**
 
 ```bash
-cd C:\acoplamento_theta-gamma\SCRIPT
+cd D:\acoplamento_theta-gamma\SCRIPT
 jupyter notebook pipeline/etapa5_exploracao/notebooks/exploracao_interativo.ipynb
 ```
 

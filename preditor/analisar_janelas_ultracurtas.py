@@ -29,8 +29,8 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(SCRIPT_DIR, '..'))
 from pac_core.io import carrega_dados
 from pac_core.filtering import aplica_notch
+from pac_core.workspace import BASE_LAC_NOCI
 
-BASE_LAC_NOCI = r"C:\acoplamento_theta-gamma\LAC_NOCI"
 CSV_VENCEDORES = os.path.join(SCRIPT_DIR, '..', 'resultados', 'candidatos_vencedores_OURO_PURIFICADO_v2.csv')
 NOTCH_HZ = [60.0, 120.0, 180.0, 240.0]
 CONTROL_OFFSET_S = 60.0

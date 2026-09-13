@@ -26,12 +26,11 @@ import pandas as pd
 import joblib
 from scipy.signal import welch
 
-BASE = r"C:\acoplamento_theta-gamma"
-BASE_LAC_NOCI = os.path.join(BASE, "LAC_NOCI")
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(SCRIPT_DIR, '..'))
 from pac_core.io import carrega_dados
 from pac_core.filtering import aplica_notch
+from pac_core.workspace import BASE_LAC_NOCI
 from pipeline.etapa4_validacao.robustez_parametros import mi_z_par, mvl_z_par
 
 NOTCH_HZ = [60.0, 120.0, 180.0, 240.0]

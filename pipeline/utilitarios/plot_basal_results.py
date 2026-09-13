@@ -3,12 +3,18 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from pac_core.workspace import BASE_WORKSPACE
 
 # Configurações do matplotlib
 plt.style.use('default')
 sns.set_theme(style="whitegrid", context="talk")
 
-def plotar_resultados_basais(csv_path="C:/acoplamento_theta-gamma/dataset_mestre_final.csv", saida_dir="C:/acoplamento_theta-gamma/analise_basal"):
+def plotar_resultados_basais(csv_path=None, saida_dir=None):
+    csv_path = csv_path or os.path.join(BASE_WORKSPACE, "dataset_mestre_final.csv")
+    saida_dir = saida_dir or os.path.join(BASE_WORKSPACE, "analise_basal")
     os.makedirs(saida_dir, exist_ok=True)
     
     # Carrega dataset

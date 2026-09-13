@@ -3,14 +3,18 @@ import os
 import re
 import subprocess
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from pac_core.workspace import BASE_LAC_NOCI, BASE_SCRIPT
+
 duracoes = [12, 14, 16, 18, 20]
 dps = [3.0, 3.2, 3.5, 3.8, 4.0]
+_pasta_ex = os.path.join(BASE_LAC_NOCI, "MTESC04_NOCI", "MTESC04 -- 1 - infusao - 08-07-2024", "Basal antes da infusao")
 origens = {
-    "exploracao_001": r"C:\acoplamento_theta-gamma\MTESC04_NOCI\MTESC04 -- 1 - infusao - 08-07-2024\Basal antes da infusao\20240708-123605-001.ns2",
-    "imobilidade_002": r"C:\acoplamento_theta-gamma\MTESC04_NOCI\MTESC04 -- 1 - infusao - 08-07-2024\Basal antes da infusao\20240708-123605-002.ns2",
-    "imobilidade_003": r"C:\acoplamento_theta-gamma\MTESC04_NOCI\MTESC04 -- 1 - infusao - 08-07-2024\Basal antes da infusao\20240708-123605-003.ns2"
+    "exploracao_001": os.path.join(_pasta_ex, "20240708-123605-001.ns2"),
+    "imobilidade_002": os.path.join(_pasta_ex, "20240708-123605-002.ns2"),
+    "imobilidade_003": os.path.join(_pasta_ex, "20240708-123605-003.ns2"),
 }
-script_path = r"C:\acoplamento_theta-gamma\SCRIPT\pipeline\etapa1_triagem\triagem_coocorrencia.py"
+script_path = os.path.join(BASE_SCRIPT, "pipeline", "etapa1_triagem", "triagem_coocorrencia.py")
 
 resultados = []
 

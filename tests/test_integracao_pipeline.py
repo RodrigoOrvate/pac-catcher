@@ -3,14 +3,17 @@ import sys
 import subprocess
 import time
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from pac_core.workspace import BASE_LAC_NOCI, BASE_SCRIPT
+
 def main():
     print("=" * 85)
     print("TESTE DE INTEGRAÇÃO DO ORQUESTRADOR")
     print("=" * 85)
-    
+
     # Vamos rodar o orquestrador em uma sessão de teste real.
-    pasta_teste = r"C:\acoplamento_theta-gamma\MTESC04_NOCI\MTESC04 -- 1 - infusao - 08-07-2024\Basal antes da infusao"
-    pasta_saida = r"C:\acoplamento_theta-gamma\SCRIPT\TESTE_INTEGRACAO_OUT"
+    pasta_teste = os.path.join(BASE_LAC_NOCI, "MTESC04_NOCI", "MTESC04 -- 1 - infusao - 08-07-2024", "Basal antes da infusao")
+    pasta_saida = os.path.join(BASE_SCRIPT, "TESTE_INTEGRACAO_OUT")
     
     if not os.path.exists(pasta_teste):
         print(f"Pasta de teste não encontrada: {pasta_teste}")

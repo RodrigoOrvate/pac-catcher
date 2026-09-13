@@ -7,6 +7,7 @@ from scipy.signal import butter, filtfilt
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from pipeline.etapa1_triagem.deteccao_ripple import detecta_eventos_ripple
 from pipeline.etapa1_triagem.triagem_coocorrencia import carrega_sinal
+from pac_core.workspace import BASE_LAC_NOCI
 
 def butter_bandpass_filter(data, lowcut, highcut, fs, order=5):
     nyq = 0.5 * fs
@@ -24,7 +25,8 @@ def butter_lowpass_filter(data, cutoff, fs, order=5):
     return y
 
 def inspeciona_candidato():
-    arquivo = r"C:\acoplamento_theta-gamma\MTESC04_NOCI\MTESC04 -- 1 - infusao - 08-07-2024\Basal antes da infusao\20240708-123605-002.ns2"
+    arquivo = os.path.join(BASE_LAC_NOCI, "MTESC04_NOCI", "MTESC04 -- 1 - infusao - 08-07-2024",
+                            "Basal antes da infusao", "20240708-123605-002.ns2")
     canal = "chan1"
     
     print("Carregando sinal...")

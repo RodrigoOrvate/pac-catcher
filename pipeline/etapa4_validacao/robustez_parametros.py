@@ -74,7 +74,13 @@ N_BINS_SWEEP = [10, 12, 15, 18, 24, 30]
 MEIA_FAISES = [0.7, 1.0, 1.5, 2.5]
 MEIA_AMPS = [2.5, 3.5, 5.0, 7.5, 10.0]  # curva de sintonia em torno do canônico
 N_SURR = 200
-NOTCH_HZ = 60.0
+# Auditoria 2026-09: era so 60.0 (fundamental) -- nao removia os harmonicos
+# 120/180/240Hz, apesar da regra #1 do CLAUDE.md. Teste pareado (mesma seed,
+# 60Hz-so vs multi-harmonico) nos 227 candidatos do OURO_PURIFICADO.csv: 37
+# (16.3%) mudam de veredito de robustez, a maioria perdendo robustez por
+# deteccao de transiente antes mascarada pelo ruido de linha residual (ver
+# resultados/_verificacao_notch_robustez_227.csv).
+NOTCH_HZ = [60.0, 120.0, 180.0, 240.0]
 
 # Limiares de rejeição (CAMADA 2)
 LIMIAR_MVL = 0.05       # MVL < 0.05 = distribuição circular = rejeitar

@@ -19,13 +19,19 @@ desse preditor. É código `SCRIPT/` (nada de sessão).
 > - **Estado comportamental + potência teta (`preditor_estado_comportamental.py`,
 >   novo)**: em vez de procurar uma rampa no sinal, testa se comportamento da
 >   janela anterior + potência teta dessa janela preveem a janela seguinte.
->   Validação cruzada 5-fold: acurácia 0.584, **AUC-ROC 0.597** — modesto,
->   mas a primeira abordagem que bate chance de forma real. Consistente com
->   Vanderwolf (1969)/Tort et al. (2009)/Colgin (2016): PAC é dependente de
->   estado comportamental, não um evento espontâneo do LFP local.
+>   Baseline (banda 4-8Hz bruta + comportamento): AUC-ROC 0.602. Rodado um
+>   ablation de 4 melhorias candidatas — só uma se confirmou: separar a
+>   potência numa janela mais próxima do evento + a tendência (subindo ou
+>   caindo) ao longo dos últimos ~10s levou a AUC-ROC **0.618**.
+>   Normalização por canal (z-score) e MI num par fase-amplitude fixo NÃO
+>   ajudaram isoladamente (testado e descartado, ver histórico de commits).
+>   Consistente com Vanderwolf (1969)/Tort et al. (2009)/Colgin (2016): PAC
+>   é dependente de estado comportamental, não um evento espontâneo do LFP
+>   local — e a feature mais forte agora é a potência teta RÁPIDA (7-10Hz,
+>   tipo 1, ligada a locomoção), não a banda genérica 4-8Hz.
 >
 > **Não usar nenhum dos dois para disparar hardware** até validação mais
-> robusta (AUC 0.6 está longe do necessário para controlar luz em tempo
+> robusta (AUC 0.62 está longe do necessário para controlar luz em tempo
 > real). Ver seção "Limitação conhecida" abaixo.
 
 ## Fluxo dos dados
@@ -74,11 +80,16 @@ final sozinho, sem precisar dos dois primeiros) e o novo
 `mi_z_par`/`mvl_z_par` de `robustez_parametros.py`) + `Footprint_n_z3`
 (quantos dos outros 31 canais já mostram z≥3 no mesmo par).
 
-**`preditor_estado_comportamental.py`** (8 features): `log_theta_power_anterior`
-(Welch 4–8Hz da janela N-1) + one-hot do `comportamento` anotado da janela
-N-1 (7 categorias). Ambos medidos em N-1 para prever se N vira vencedor —
-formulação sem vazamento (só usa o que estaria disponível no momento da
-decisão).
+**`preditor_estado_comportamental.py`** (13 features, config. vencedora do
+ablation): potência teta em duas sub-bandas — lenta/tipo2 (4–7Hz,
+sniffing/imobilidade) e rápida/tipo1 (7–10Hz, locomoção, distinção de
+Vanderwolf) — cada uma em 3 versões (janela N-1 inteira, sub-janela mais
+próxima de N, e tendência/inclinação ao longo de 5 sub-janelas) + one-hot
+do `comportamento` anotado de N-1 (7 categorias). Todas medidas em N-1 para
+prever se N vira vencedor — formulação sem vazamento. O script roda um
+ablation completo antes de treinar o modelo final e imprime o efeito
+isolado de cada melhoria testada (inclusive as que NÃO ajudaram:
+normalização por canal e MI num par canônico fixo).
 
 ## Dependências
 
@@ -106,16 +117,29 @@ python prever_pac_tempo_real.py --simular   # demo do loop de disparo
   elétrico local separa pré-evento de controle. O acoplamento parece mais
   um burst transiente que uma rampa gradual visível no LFP isolado.
 - **Estado comportamental funciona, modestamente**: comportamento da janela
-  anterior + potência teta chegam a AUC 0.597 — sobrevive a restringir só
+  anterior + potência teta chegam a AUC 0.602 — sobrevive a restringir só
   transições reais de comportamento (p=0.018, descarta autocorrelação pura)
   e a controlar pela própria potência teta (teste de razão de
   verossimilhança p=1.3e-5, descarta "é só teta disfarçado"). Ainda é uma
   discriminação fraca-a-moderada, não confiável para hardware.
-- **Próximos candidatos**: um proxy de movimento em tempo real (a própria
-  potência teta de banda larga já serve, sem precisar de vídeo/EMG);
-  janelas de pré-evento mais curtas que 10s (testar 1–3s, mais perto do
-  início) para ver se o precursor comportamental fica mais forte perto do
-  evento; combinar as duas abordagens (features PAC locais + estado) num
-  único modelo.
+- **Ablation de melhorias (13/09/2026)**: testadas 4 hipóteses sobre o
+  baseline de estado. Só uma se confirmou: **janela mais próxima do evento
+  + tendência de subida/descida** ao longo dos últimos ~10s (AUC 0.602 →
+  0.618). As outras três NÃO ajudaram isoladamente, e isso foi verificado
+  explicitamente (não só assumido): normalização de potência teta por canal
+  (z-score) é neutra, não prejudicial — o resultado inicial pior era um
+  artefato de testá-la sem as outras features; MI num par fase-amplitude
+  canônico fixo (6Hz×85Hz, mediana dos 190 vencedores) piora levemente; e
+  separar teta rápida (tipo 1, locomoção)/lenta (tipo 2, sniffing) não deu
+  ganho isolado, mas a rápida virou a feature de maior importância no
+  modelo final combinado. Limiar calibrado por F1 (0.431): recall 0.896 do
+  vencedor com precisão 0.452 — útil se a prioridade é não perder o evento
+  (custo: quase metade dos disparos seria falso-positivo).
+- **Próximos candidatos não testados**: janelas de pré-evento mais curtas
+  que os ~10s atuais (testar 1–3s, ainda mais perto do início); combinar
+  estado+teta com as features PAC locais de `validar_preditor.py` (MI/MVL/
+  footprint) num único modelo, já que nunca foram testadas juntas; mais
+  sub-bandas teta (a divisão 4–7/7–10Hz é uma primeira aproximação grosseira
+  da distinção de Vanderwolf, não uma calibração fina).
 - **TTL**: `dispara_ttl()` em `prever_pac_tempo_real.py` é um stand-in — plugar
   o backend (NI-DAQ `nidaqmx`, Arduino serial etc.) quando houver a placa.

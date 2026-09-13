@@ -31,16 +31,22 @@ BASE_LAC_NOCI = os.path.join(BASE, "LAC_NOCI")
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(SCRIPT_DIR, '..'))
 from pac_core.io import carrega_dados
+from pac_core.filtering import aplica_notch
+from pipeline.etapa4_validacao.robustez_parametros import mi_z_par, mvl_z_par
+
+NOTCH_HZ = [60.0, 120.0, 180.0, 240.0]
+FOOTPRINT_N_SURR = 50   # varredura grosseira nos outros 31 canais (custo x32)
 
 FS = 1000
 PRE_WINDOW = 10
 CONTROL_OFFSET_S = 60   # janela de controle começa event_time + offset
-FEATURES = ['Energia', 'Theta_Energy', 'Gamma_Energy', 'Ratio_TG', 'Theta_Peak']
+FEATURES = ['Energia', 'Theta_Energy', 'Gamma_Energy', 'Ratio_TG', 'Theta_Peak',
+            'MI_z_oficial', 'MVL_z_oficial', 'Footprint_n_z3']
 CSV_VENCEDORES = os.path.join(SCRIPT_DIR, '..', 'resultados', 'candidatos_vencedores_OURO_PURIFICADO_v2.csv')
 
 
-def extrair_features(window_data):
-    """Janela (n_amostras, n_canais) -> vetor de features (mesma ordem do treino)."""
+def extrair_features_espectrais(window_data):
+    """Janela (n_amostras, n_canais) -> 5 features espectrais simples (protótipo original)."""
     sig = np.mean(window_data, axis=1)
     energia = np.var(sig)
     f, psd = welch(sig, FS, nperseg=min(1000, len(sig)))
@@ -52,7 +58,35 @@ def extrair_features(window_data):
     gm = (f >= 30) & (f <= 80)
     ge = np.mean(psd[gm]) if np.any(gm) else 0.0
 
-    return np.array([energia, te, ge, te / (ge + 1e-6), tp])
+    return [energia, te, ge, te / (ge + 1e-6), tp]
+
+
+def extrair_features_pac(dados_janela, canal_idx, fs, fase_pico_hz, amp_pico_hz, rng):
+    """3 features PAC-especificas na janela (n_amostras, n_canais_totais):
+    - MI_z_oficial / MVL_z_oficial: ja existe acoplamento (no par que a
+      sessao eventualmente mostra) se formando NESTE canal, nesta janela?
+    - Footprint_n_z3: quantos OUTROS canais ja mostram z>=3 no mesmo par,
+      na MESMA janela -- precursor espacial (onda se formando na rede)?
+    """
+    lfp_alvo = aplica_notch(dados_janela[:, canal_idx].astype(float), fs, freqs_notch=NOTCH_HZ)
+    mi_z = mi_z_par(lfp_alvo, fs, fase_pico_hz, amp_pico_hz, rng=rng)
+    mvl_z = mvl_z_par(lfp_alvo, fs, fase_pico_hz, amp_pico_hz, rng=rng)
+
+    n_footprint = 0
+    for c in range(dados_janela.shape[1]):
+        if c == canal_idx:
+            continue
+        lfp_c = aplica_notch(dados_janela[:, c].astype(float), fs, freqs_notch=NOTCH_HZ)
+        z_c = mi_z_par(lfp_c, fs, fase_pico_hz, amp_pico_hz, n_surr=FOOTPRINT_N_SURR, rng=rng)
+        if z_c >= 3.0:
+            n_footprint += 1
+
+    return [mi_z, mvl_z, n_footprint]
+
+
+def extrair_features(dados_janela, canal_idx, fs, fase_pico_hz, amp_pico_hz, rng):
+    return np.array(extrair_features_espectrais(dados_janela) +
+                     extrair_features_pac(dados_janela, canal_idx, fs, fase_pico_hz, amp_pico_hz, rng))
 
 
 def resolve_pasta_basal(sessao_str, arquivo):
@@ -81,6 +115,9 @@ def carregar_positivos_e_controles():
     for _, row in df.iterrows():
         canal_idx = int(row['canal']) - 1  # convencao 1-based do dataset mestre
         t_evento = float(row['janela_ini_s'])
+        fp = float(row['fase_pico_hz'])
+        fa = float(row['amp_pico_hz'])
+        rng = np.random.default_rng(42 + row.name)
         pasta = resolve_pasta_basal(str(row['sessao']), str(row['arquivo']))
         if pasta is None:
             print(f"  [skip] sessao={row['sessao']!r} arquivo={row['arquivo']!r} nao resolvido")
@@ -98,7 +135,7 @@ def carregar_positivos_e_controles():
         i0 = int((t_evento - PRE_WINDOW) * fs)
         i1 = i0 + int(PRE_WINDOW * fs)
         if i0 >= 0 and i1 <= dados.shape[0]:
-            X.append(extrair_features(dados[i0:i1, [canal_idx]]))
+            X.append(extrair_features(dados[i0:i1, :], canal_idx, fs, fp, fa, rng))
             y.append(1)
             meta.append((os.path.basename(ns2_path), row['canal'], 'pre'))
 
@@ -106,7 +143,7 @@ def carregar_positivos_e_controles():
         c0 = int((t_evento + CONTROL_OFFSET_S) * fs)
         c1 = c0 + int(PRE_WINDOW * fs)
         if c1 <= dados.shape[0]:
-            X.append(extrair_features(dados[c0:c1, [canal_idx]]))
+            X.append(extrair_features(dados[c0:c1, :], canal_idx, fs, fp, fa, rng))
             y.append(0)
             meta.append((os.path.basename(ns2_path), row['canal'], 'controle'))
         else:
@@ -114,7 +151,7 @@ def carregar_positivos_e_controles():
             c0 = max(0, int((t_evento - CONTROL_OFFSET_S - PRE_WINDOW) * fs))
             c1 = c0 + int(PRE_WINDOW * fs)
             if c1 <= dados.shape[0]:
-                X.append(extrair_features(dados[c0:c1, [canal_idx]]))
+                X.append(extrair_features(dados[c0:c1, :], canal_idx, fs, fp, fa, rng))
                 y.append(0)
                 meta.append((os.path.basename(ns2_path), row['canal'], 'controle'))
 

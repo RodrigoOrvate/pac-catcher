@@ -1,3 +1,11 @@
+"""
+inspeciona_evento.py -- plota o 1o candidato a ripple de um canal (bruto,
+150-250 Hz e sharp-wave 1-30 Hz, +-200 ms em torno do pico).
+
+    python pipeline/etapa1_triagem/inspeciona_evento.py
+    python pipeline/etapa1_triagem/inspeciona_evento.py --arquivo <x.ns2> --canal chan5 --limiar_dp 2.5
+"""
+import argparse
 import sys
 import os
 import numpy as np
@@ -7,7 +15,10 @@ from scipy.signal import butter, filtfilt
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from pipeline.etapa1_triagem.deteccao_ripple import detecta_eventos_ripple
 from pipeline.etapa1_triagem.triagem_coocorrencia import carrega_sinal
-from pac_core.workspace import BASE_LAC_NOCI
+from pac_core import workspace
+
+ARQUIVO_PADRAO = os.path.join(workspace.BASE_LAC_NOCI, "MTESC04_NOCI", "MTESC04 -- 1 - infusao - 08-07-2024",
+                              "Basal antes da infusao", "20240708-123605-002.ns2")
 
 def butter_bandpass_filter(data, lowcut, highcut, fs, order=5):
     nyq = 0.5 * fs
@@ -24,17 +35,14 @@ def butter_lowpass_filter(data, cutoff, fs, order=5):
     y = filtfilt(b, a, data)
     return y
 
-def inspeciona_candidato():
-    arquivo = os.path.join(BASE_LAC_NOCI, "MTESC04_NOCI", "MTESC04 -- 1 - infusao - 08-07-2024",
-                            "Basal antes da infusao", "20240708-123605-002.ns2")
-    canal = "chan1"
-    
+def inspeciona_candidato(arquivo=ARQUIVO_PADRAO, canal="chan1", limiar_dp=3.0, duracao_min_ms=15.0,
+                         saida_dir=None):
     print("Carregando sinal...")
     sinal, fs, _ = carrega_sinal(arquivo, canal)
     print(f"Sinal carregado. fs={fs}")
-    
-    print("Detectando ripple (15ms, DP=3.0)...")
-    df_ripples, limiar = detecta_eventos_ripple(sinal, fs, limiar_dp=3.0, duracao_min_ms=15.0)
+
+    print(f"Detectando ripple ({duracao_min_ms:g}ms, DP={limiar_dp:g})...")
+    df_ripples, limiar = detecta_eventos_ripple(sinal, fs, limiar_dp=limiar_dp, duracao_min_ms=duracao_min_ms)
     
     if not df_ripples:
         print("Nenhum candidato encontrado!")
@@ -87,9 +95,20 @@ def inspeciona_candidato():
     
     plt.tight_layout()
     
-    out_path = r"C:\Users\rodri\.gemini\antigravity-ide\brain\4887ffb1-11dd-4c40-9405-5bdadf2068d3\candidato_ripple.png"
+    saida_dir = saida_dir or workspace.figuras("inspecao_ripple")
+    os.makedirs(saida_dir, exist_ok=True)
+    out_path = os.path.join(saida_dir, f"candidato_ripple_{os.path.splitext(os.path.basename(arquivo))[0]}_{canal}.png")
     plt.savefig(out_path)
+    plt.close()
     print(f"Plot salvo em {out_path}")
 
 if __name__ == "__main__":
-    inspeciona_candidato()
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--arquivo", default=ARQUIVO_PADRAO, help=".ns2 a inspecionar")
+    ap.add_argument("--canal", default="chan1", help="nome do canal (default chan1)")
+    ap.add_argument("--limiar_dp", type=float, default=3.0)
+    ap.add_argument("--duracao_min_ms", type=float, default=15.0)
+    ap.add_argument("--saida_dir", default=None, help="default: SCRIPT/figuras/inspecao_ripple")
+    a = ap.parse_args()
+    inspeciona_candidato(a.arquivo, a.canal, a.limiar_dp, a.duracao_min_ms, a.saida_dir)

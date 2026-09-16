@@ -28,6 +28,9 @@ import pandas as pd
 from PIL import Image, ImageTk
 import cv2
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from pac_core.workspace import BASE_WORKSPACE
+
 def _encontrar_csv_padrao():
     modulo_dir = os.path.dirname(os.path.abspath(__file__))
     candidatos = [
@@ -181,6 +184,7 @@ class AnotadorApp(tk.Tk):
 
         self.player = VideoPlayer()
         self.current_session = None
+        self.current_condicao = None
         self.current_file = None
         self.session_files = []
         self.file_offsets = {}
@@ -519,26 +523,58 @@ class AnotadorApp(tk.Tk):
             )))
             self.cb_comportamento["values"] = valores
 
+    def _tem_condicao(self):
+        return "condicao" in self.df.columns
+
+    def _chave_config(self, sessao, condicao):
+        """Chave de armazenamento em config['sessoes']. Basal (condicao ausente ou
+        'basal') usa a chave antiga (bare sessao) -- compatibilidade com as sessões
+        já configuradas manualmente. Infusão (0h/1h/2h) usa chave composta, porque
+        uma mesma `sessao` cobre 3 vídeos diferentes (um por condição), ao contrário
+        do basal (1 sessao = 1 vídeo)."""
+        if condicao and condicao != "basal":
+            return f"{sessao} :: {condicao}"
+        return sessao
+
+    def _mask_par(self, sessao, condicao):
+        mask = self.df["sessao"] == sessao
+        if condicao is not None and self._tem_condicao():
+            mask = mask & (self.df["condicao"] == condicao)
+        return mask
+
+    def _mask_sessao_atual(self):
+        return self._mask_par(self.current_session, self.current_condicao)
+
     def _atualizar_lista_sessoes(self):
-        """Carrega a lista de sessões únicas do CSV."""
+        """Carrega a lista de sessões únicas do CSV. Quando há coluna `condicao`,
+        a unidade de sessão é o par (sessao, condicao) -- ver `_chave_config`."""
         if self.df is None or len(self.df) == 0:
             return
 
-        sessoes = self.df["sessao"].unique().tolist()
+        tem_condicao = self._tem_condicao()
+        if tem_condicao:
+            pares = (self.df[["sessao", "condicao"]].drop_duplicates()
+                     .sort_values(["sessao", "condicao"]).itertuples(index=False, name=None))
+            sessoes = list(pares)
+        else:
+            sessoes = [(s, None) for s in self.df["sessao"].unique().tolist()]
+
         sessoes_display = []
-        for s in sessoes:
-            sub = self.df[self.df["sessao"] == s]
+        for s, c in sessoes:
+            sub = self.df[self._mask_par(s, c)]
             total = len(sub)
             anotados = (sub["comportamento"].str.strip() != "").sum()
-            sessoes_display.append(f"{s} ({anotados}/{total})")
+            rotulo = f"{s} :: {c}" if c is not None else s
+            sessoes_display.append(f"{rotulo} ({anotados}/{total})")
 
         self.cb_sessao["values"] = sessoes_display
 
         ultima_sessao = self.config.get("ultima_sessao")
+        ultima_condicao = self.config.get("ultima_condicao")
         idx_escolhido = 0
         if ultima_sessao:
-            for i, s in enumerate(sessoes):
-                if s == ultima_sessao:
+            for i, (s, c) in enumerate(sessoes):
+                if s == ultima_sessao and c == ultima_condicao:
                     idx_escolhido = i
                     break
 
@@ -558,15 +594,23 @@ class AnotadorApp(tk.Tk):
         raw_val = self.var_session.get()
         if not raw_val:
             return
-        sessao_nome = raw_val.rsplit(" (", 1)[0]
+        raw_sem_contagem = raw_val.rsplit(" (", 1)[0]
+        if " :: " in raw_sem_contagem:
+            sessao_nome, condicao_nome = raw_sem_contagem.split(" :: ", 1)
+        else:
+            sessao_nome, condicao_nome = raw_sem_contagem, None
         self.current_session = sessao_nome
+        self.current_condicao = condicao_nome
         self.config["ultima_sessao"] = sessao_nome
+        self.config["ultima_condicao"] = condicao_nome
 
-        # Identifica todos os arquivos únicos pertencentes a esta sessão
-        sub_df = self.df[self.df["sessao"] == sessao_nome]
+        # Identifica todos os arquivos únicos pertencentes a esta sessão (+ condição,
+        # quando aplicável -- uma mesma `sessao` de infusão cobre 3 condições, cada
+        # uma com seus próprios arquivos .ns2 e vídeo)
+        sub_df = self.df[self._mask_sessao_atual()]
         self.session_files = list(dict.fromkeys(sub_df["arquivo"].dropna().astype(str).tolist()))
 
-        sess_cfg = self.config.get("sessoes", {}).get(sessao_nome, {})
+        sess_cfg = self.config.get("sessoes", {}).get(self._chave_config(sessao_nome, condicao_nome), {})
         video_salvo = sess_cfg.get("video_path", "")
         base_offset = float(sess_cfg.get("offset", 0.0))
         saved_file_offsets = sess_cfg.get("offsets_arquivos", {})
@@ -600,7 +644,7 @@ class AnotadorApp(tk.Tk):
         else:
             self.player.release()
             self.var_video_path.set("")
-            self._tentar_autodetectar_video(sessao_nome)
+            self._tentar_autodetectar_video(sessao_nome, condicao_nome)
 
         self._sincronizar_tempos_video_sessao()
         self._atualizar_tabela_momentos()
@@ -628,7 +672,7 @@ class AnotadorApp(tk.Tk):
         """Garante que video_tempo_ini e video_tempo_fim reflitam os offsets de cada arquivo da sessão."""
         if self.df is None or not self.current_session:
             return
-        mask_sess = self.df["sessao"] == self.current_session
+        mask_sess = self._mask_sessao_atual()
         alterou = False
         for idx in self.df[mask_sess].index:
             arq = str(self.df.at[idx, "arquivo"])
@@ -644,21 +688,27 @@ class AnotadorApp(tk.Tk):
         if alterou:
             self._salvar_csv(mostrar_mensagem=False)
 
-    def _tentar_autodetectar_video(self, sessao_nome: str):
-        """Procura o vídeo (.MPG, .mp4, etc.) da sessão nas pastas do workspace."""
+    def _tentar_autodetectar_video(self, sessao_nome: str, condicao: str = None):
+        """Procura o vídeo (.MPG, .mp4, etc.) da sessão nas pastas do workspace.
+
+        Uma sessão de infusão tem 4 vídeos na mesma pasta da rodada (basal +
+        0h/1h/2h pós), então o achado por token de rato sozinho é ambíguo --
+        desempata pela palavra-chave da condição no NOME do arquivo (ex.: "0h"
+        para 0h_pos). Sem condição (basal ou dataset antigo sem essa coluna),
+        prefere um nome de arquivo com "basal"; sem isso, cai no 1º candidato
+        (comportamento antigo, preservado para não quebrar sessões já configuradas)."""
         token = sessao_nome.split("_")[0].strip().lower()
-        # LAC_NOCI/EXPLORACAO_OBJETOS sao irmas de SCRIPT/, nao filhas da
-        # pasta do CSV -- por isso resolvidas a partir de __file__ (3 niveis
-        # acima de pipeline/comportamento/), nao de root_dir do csv_path.
-        modulo_dir = os.path.dirname(os.path.abspath(__file__))
-        workspace_root = os.path.abspath(os.path.join(modulo_dir, "..", "..", ".."))
+        palavra_condicao = None
+        if condicao and condicao != "basal":
+            palavra_condicao = condicao.split("_")[0].lower()  # "0h_pos" -> "0h"
         pastas_busca = [
             os.path.dirname(os.path.abspath(self.csv_path)),
-            os.path.join(workspace_root, "LAC_NOCI"),
-            os.path.join(workspace_root, "EXPLORACAO_OBJETOS"),
+            os.path.join(BASE_WORKSPACE, "LAC_NOCI"),
+            os.path.join(BASE_WORKSPACE, "EXPLORACAO_OBJETOS"),
             self.config.get("ultima_pasta_videos", "")
         ]
         exts = (".mpg", ".mpeg", ".mp4", ".avi", ".mkv", ".mov", ".wmv")
+        candidatos = []
         for raiz in pastas_busca:
             if not raiz or not os.path.exists(raiz):
                 continue
@@ -666,10 +716,23 @@ class AnotadorApp(tk.Tk):
                 if token in dp.lower() or os.path.basename(dp).lower() == token:
                     for f in fns:
                         if f.lower().endswith(exts):
-                            full_p = os.path.join(dp, f)
-                            self.var_video_path.set(full_p)
-                            self._carregar_video_arquivo(full_p)
-                            return
+                            candidatos.append(os.path.join(dp, f))
+        if not candidatos:
+            return
+        candidatos.sort()
+
+        escolhido = None
+        if palavra_condicao:
+            escolhido = next((c for c in candidatos
+                              if palavra_condicao in os.path.basename(c).lower()), None)
+        else:
+            escolhido = next((c for c in candidatos
+                              if "basal" in os.path.basename(c).lower()), None)
+        if escolhido is None:
+            escolhido = candidatos[0]
+
+        self.var_video_path.set(escolhido)
+        self._carregar_video_arquivo(escolhido)
 
     def _selecionar_video(self):
         inicial = self.config.get("ultima_pasta_videos", os.path.dirname(self.csv_path))
@@ -712,7 +775,7 @@ class AnotadorApp(tk.Tk):
 
         base_off = self.file_offsets.get(self.session_files[0], self.var_offset.get()) if self.session_files else self.var_offset.get()
 
-        self.config["sessoes"][self.current_session] = {
+        self.config["sessoes"][self._chave_config(self.current_session, self.current_condicao)] = {
             "video_path": self.var_video_path.get(),
             "offset": base_off,
             "offsets_arquivos": self.file_offsets
@@ -742,7 +805,7 @@ class AnotadorApp(tk.Tk):
 
         # Atualiza video_tempo_ini e video_tempo_fim no DataFrame e no CSV para o arquivo atual
         if self.df is not None and self.current_session:
-            mask = (self.df["sessao"] == self.current_session)
+            mask = self._mask_sessao_atual()
             if self.current_file:
                 mask = mask & (self.df["arquivo"] == self.current_file)
 
@@ -791,7 +854,7 @@ class AnotadorApp(tk.Tk):
         for item in self.tree.get_children():
             self.tree.delete(item)
 
-        sub_df = self.df[self.df["sessao"] == self.current_session]
+        sub_df = self.df[self._mask_sessao_atual()]
         filtro = self.var_status_filter.get()
 
         total = len(sub_df)

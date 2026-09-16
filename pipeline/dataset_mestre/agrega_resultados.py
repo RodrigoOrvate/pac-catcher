@@ -1,4 +1,5 @@
 import os
+import re
 import argparse
 import pandas as pd
 
@@ -6,6 +7,28 @@ import pandas as pd
 CHAVE_JANELA = ["arquivo", "canal", "janela_ini_s", "janela_fim_s"]
 # Chave que identifica uma janela-por-par (a granularidade de refinados.csv).
 CHAVE_JANELA_PAR = CHAVE_JANELA + ["par"]
+
+
+def grupo_farmacologico(partes):
+    """Grupo (NOCI / LAC / VEH) a partir das partes do caminho.
+
+    As sessões do experimento de lactato ficam sob MTESCnn_LAC, mas cada
+    uma leva no nome o que foi de fato infundido ("...-lac_hemdir" ou
+    "...-veh_hemesq"). O token da sessão vence o da pasta do rato -- senão
+    toda sessão de veículo seria rotulada LAC só por morar em MTESCnn_LAC.
+    """
+    for p in partes:
+        m = re.search(r"(?<![A-Za-z])(lac|veh)_hem", p, re.IGNORECASE)
+        if m:
+            return m.group(1).upper()
+    for p in partes:
+        if "NOCI" in p.upper():
+            return "NOCI"
+        if re.search(r"(?<![A-Za-z])VEH(?![A-Za-z])", p, re.IGNORECASE):
+            return "VEH"
+        if "LAC" in p.upper():
+            return "LAC"
+    return "indeterminado"
 
 
 def _le_csv_seguro(caminho):
@@ -120,6 +143,10 @@ def agrega_resultados(pasta_saida_base, saida_mestre="dataset_mestre.csv"):
     completo (skewness + comodulograma + harmônico + harmônico_hfo) por
     canal, extrai condição experimental do nome da pasta, e concatena tudo
     numa tabela mestre final.
+
+    Pastas cujo nome começa com "_" (ex.: `_CONTAMINADO_nao_usar/`,
+    `_LAC_basal_antigo_nao_usar/`) são ignoradas: é a convenção para isolar
+    saídas descartadas sem apagá-las.
     """
     print(f"[AGREGADOR] Lendo {pasta_saida_base}...")
 
@@ -132,6 +159,7 @@ def agrega_resultados(pasta_saida_base, saida_mestre="dataset_mestre.csv"):
     total_final = 0
 
     for root, dirs, files in os.walk(pasta_saida_base):
+        dirs[:] = [d for d in dirs if not d.startswith("_")]
         if "refinados.csv" not in files:
             continue
 
@@ -157,16 +185,37 @@ def agrega_resultados(pasta_saida_base, saida_mestre="dataset_mestre.csv"):
         for p in partes:
             if p.startswith("chan"):
                 canal = p.replace("chan", "")
-            if "MTESC" in p or "Rodada" in p:
-                sessao = p
 
+        # Prioriza a parte com "MTESC" (nome de pasta com prefixo do animal,
+        # ex. "MTESC05_LAC_Rodada-1-04-05-2024"). Sem essa prioridade, uma
+        # pasta-folha interna que tambem contem "Rodada" (ex.
+        # ".../MTESC05_LAC_Rodada-X/Rodada-X/chan5") vencia por ultima no loop
+        # e descartava o prefixo do animal (bug real, ja visto em producao).
+        for p in partes:
+            if "MTESC" in p:
+                sessao = p
+                break
+        if sessao == "unknown":
+            for p in partes:
+                if "Rodada" in p:
+                    sessao = p
+                    break
+
+        grupo = grupo_farmacologico(partes)
+
+        # Condicao/tempo pos-infusao vem do nome da pasta-folha (leaf),
+        # independente do grupo farmacologico.
         condicao = "basal"
-        if "LAC" in sessao.upper():
-            condicao = "LAC"
-        elif "NOCI" in sessao.upper():
-            condicao = "NOCI"
+        root_lower = root.lower()
+        if "0h" in root_lower or "30min" in root_lower:
+            condicao = "0h_pos"
+        elif "1h" in root_lower:
+            condicao = "1h_pos"
+        elif "2h" in root_lower:
+            condicao = "2h_pos"
 
         df_canal["sessao"] = sessao
+        df_canal["grupo"] = grupo
         df_canal["condicao"] = condicao
         df_canal["canal"] = canal.replace("chan", "")
 

@@ -50,7 +50,6 @@ Uso:
 """
 import os
 import sys
-import glob
 import numpy as np
 import pandas as pd
 from scipy.signal import welch, hilbert
@@ -59,7 +58,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(SCRIPT_DIR, '..'))
 from pac_core.io import carrega_dados
 from pac_core.filtering import aplica_notch
-from pac_core.workspace import BASE_LAC_NOCI
+from pac_core.workspace import localiza_ns2
 from pipeline.etapa4_validacao.robustez_parametros import mi_z_par
 
 NOTCH_HZ = [60.0, 120.0, 180.0, 240.0]
@@ -72,20 +71,6 @@ BANDA_LENTA = (4.0, 7.0)   # teta tipo 2 (Vanderwolf): sniffing / imobilidade at
 BANDA_RAPIDA = (7.0, 10.0)  # teta tipo 1: locomocao voluntaria
 N_SUBJANELAS = 5  # divide o intervalo N-1 -> N em 5 pedacos p/ "close" + tendencia
 FASE_CANONICA, AMP_CANONICA = 6.0, 85.0  # mediana dos 190 vencedores de OURO_PURIFICADO_v2.csv
-
-
-def resolve_pasta_basal(sessao_str, arquivo):
-    """Mesma logica usada em validar_preditor.py / gera_galeria_top5.py."""
-    nome_pasta = sessao_str
-    sufixo = "_Basal antes da infusao"
-    if nome_pasta.endswith(sufixo):
-        nome_pasta = nome_pasta[: -len(sufixo)]
-    candidatos = glob.glob(os.path.join(BASE_LAC_NOCI, "*", nome_pasta, "Basal antes da infusao"))
-    candidatos += [c for c in glob.glob(os.path.join(BASE_LAC_NOCI, "*", nome_pasta)) if c not in candidatos]
-    for c in candidatos:
-        if os.path.isfile(os.path.join(c, arquivo)):
-            return c
-    return None
 
 
 def banda_power(sig, fs, banda):
@@ -116,11 +101,10 @@ def monta_dataset():
     for k, (_, row) in enumerate(consec.iterrows()):
         if k % 500 == 0:
             print(f"  {k}/{n}...")
-        pasta = resolve_pasta_basal(str(row["sessao"]), str(row["arquivo"]))
-        if pasta is None:
+        ns2_path = localiza_ns2(row["arquivo"], dica=str(row["sessao"]))
+        if ns2_path is None:
             linhas.append({})
             continue
-        ns2_path = os.path.join(pasta, row["arquivo"])
         if ns2_path not in _cache:
             _cache[ns2_path] = carrega_dados(ns2_path)
         dados, fs, canal_ids = _cache[ns2_path]
@@ -183,6 +167,30 @@ def monta_dataset():
     return consec
 
 
+def _proximo_e_tendencia(consec):
+    """Passo 3 do ablation: potência na sub-janela mais próxima do evento
+    (log) + inclinação ao longo das 5 sub-janelas."""
+    extra = consec[["teta_lenta_close", "teta_rapida_close",
+                    "teta_lenta_tendencia", "teta_rapida_tendencia"]].reset_index(drop=True)
+    extra["log_teta_lenta_close"] = np.log(extra["teta_lenta_close"] + 1e-6)
+    extra["log_teta_rapida_close"] = np.log(extra["teta_rapida_close"] + 1e-6)
+    return extra.drop(columns=["teta_lenta_close", "teta_rapida_close"])
+
+
+def features_modelo_final(consec):
+    """Features da configuração final (passo 5 do ablation): potência teta
+    lenta/rápida da janela N-1 inteira (log, sem z-score) + sub-janela mais
+    próxima + tendência + comportamento anterior (one-hot). Usada por main()
+    e por gerar_figuras_dissertacao.py, que refaz as curvas ROC/PR reais a
+    partir de resultados/_preditor_estado_teta.csv sem reler os .ns2."""
+    whole_raw = pd.DataFrame({
+        "log_teta_lenta_whole": np.log(consec["teta_lenta_whole"] + 1e-6),
+        "log_teta_rapida_whole": np.log(consec["teta_rapida_whole"] + 1e-6),
+    }).reset_index(drop=True)
+    dummies = pd.get_dummies(consec["comport_anterior"], prefix="comport").reset_index(drop=True)
+    return pd.concat([whole_raw, _proximo_e_tendencia(consec), dummies], axis=1)
+
+
 def avalia(X, y, rotulo):
     from sklearn.ensemble import RandomForestClassifier
     from sklearn.model_selection import StratifiedKFold, cross_val_predict
@@ -225,11 +233,7 @@ def main():
     auc2, _, _ = avalia(X2, y, "2. + separa teta rapido (tipo1) x lento (tipo2)")
 
     # PASSO 3: adiciona "close" (mais perto do evento) e tendencia
-    extra3 = consec[["teta_lenta_close", "teta_rapida_close",
-                      "teta_lenta_tendencia", "teta_rapida_tendencia"]].reset_index(drop=True)
-    extra3["log_teta_lenta_close"] = np.log(extra3["teta_lenta_close"] + 1e-6)
-    extra3["log_teta_rapida_close"] = np.log(extra3["teta_rapida_close"] + 1e-6)
-    extra3 = extra3.drop(columns=["teta_lenta_close", "teta_rapida_close"])
+    extra3 = _proximo_e_tendencia(consec)
     X3 = pd.concat([zscores, extra3, dummies], axis=1).values
     auc3, _, _ = avalia(X3, y, "3. + janela mais proxima do evento + tendencia")
 
@@ -242,11 +246,7 @@ def main():
     # ISOLAMENTO: normalizacao por canal e MI canonico ajudaram de verdade, ou o
     # ganho e' todo do passo 3 (janela proxima + tendencia)? Testa a mesma janela
     # proxima + tendencia SEM normalizar por canal e SEM MI.
-    whole_raw = pd.DataFrame({
-        "log_teta_lenta_whole": np.log(consec["teta_lenta_whole"] + 1e-6),
-        "log_teta_rapida_whole": np.log(consec["teta_rapida_whole"] + 1e-6),
-    }).reset_index(drop=True)
-    X_melhor_df = pd.concat([whole_raw, extra3, dummies], axis=1)
+    X_melhor_df = features_modelo_final(consec)
     X_melhor = X_melhor_df.values
     auc_melhor, proba_melhor, clf_melhor = avalia(
         X_melhor, y, "5. ISOLAMENTO: whole+close+tendencia SEM z-score, SEM MI")

@@ -35,7 +35,7 @@ coincidentes produzem z alto. Esta auditoria discrimina com:
 Uso (casos da sessão 08/07 como default — nada precisa ser passado):
 
     python audita_transientes.py
-    python audita_transientes.py --pasta_ns2 "../Basal antes da infusao" --saida_dir auditoria
+    python audita_transientes.py --pasta_ns2 "<sessao>/Basal antes da infusao" --saida_dir auditoria
 
 Nova sessão, por CLI (casos específicos NUNCA entram no código). Formato de
 --casos: "rotulo,arquivo,canal,ini,fim,fp,fa" separados por ';'. Ex.:
@@ -307,7 +307,7 @@ def figura_caso(lfp_n, fs, ruins, env, hist_fase, rotulo_z, titulo, caminho_png)
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--pasta_ns2", default="../Basal antes da infusao",
+    ap.add_argument("--pasta_ns2", required=True,
                     help="Pasta com os .ns2 originais")
     ap.add_argument("--saida_dir", default="auditoria",
                     help="Diretório de saída (CSVs e PNGs)")

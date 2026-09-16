@@ -17,9 +17,14 @@ da banda (restrita + FDR), em extracao_picos_v1_vs_v2.csv. Serve para decidir
 se o pico reportado se mantém (confirmado), se migra para dentro da banda,
 ou se não sobrevive ao FDR.
 
-    python extrair_picos.py --csv "<sessao>/RESULTADOS/vencedores.csv" \
-        --pasta_ns2 "<sessao>/<BASAL>" \
-        --saida "<sessao>/RESULTADOS/extracao_picos_v1_vs_v2.csv"
+Aceita o schema atual dos vencedores consolidados (janela_ini_s/janela_fim_s,
+canal 1-based) e o legado (inicio_s/fim_s, canal "chanN"). Sem --pasta_ns2,
+cada .ns2 é localizado pelo nome no workspace (pac_core.workspace.localiza_ns2,
+desempata pelo rato da coluna `sessao`).
+
+    python pipeline/utilitarios/extrair_picos.py \
+        --csv resultados/candidatos_vencedores_OURO_PURIFICADO_v2.csv \
+        --saida resultados/extracao_picos_v1_vs_v2.csv
 """
 import argparse
 import os
@@ -36,6 +41,7 @@ except Exception:
     pass
 
 from pac_core.io import le_ns2, fatia_janela, resolve_canal_idx
+from pac_core.workspace import localiza_ns2
 from pipeline.etapa1_triagem.triagem_pac import BAND_PAIRS
 from pac_core.filtering import aplica_notch
 from pipeline.etapa3_comodulograma.comodulogram import (calcula_comodulograma_z,
@@ -66,8 +72,9 @@ def _z_na_celula(z_mapa, fases_freq, amps_freq, fp, fa):
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--csv", required=True, help="vencedores.csv da sessão")
-    ap.add_argument("--pasta_ns2", required=True, help="pasta com os .ns2")
+    ap.add_argument("--csv", required=True, help="CSV de vencedores (schema atual ou legado)")
+    ap.add_argument("--pasta_ns2", default=None,
+                    help="pasta com os .ns2 (opcional: sem ela, cada arquivo é localizado no workspace)")
     ap.add_argument("--saida", default="extracao_picos_v1_vs_v2.csv")
     ap.add_argument("--busca_ampla", action="store_true",
                     help="expande a busca original para 4-14 x 20-250 Hz (legacy)")
@@ -87,7 +94,9 @@ def main():
         theta_band = cfg["fase"]
         gamma_band = cfg["amp"]
 
-    df = pd.read_csv(args.csv)
+    df = pd.read_csv(args.csv, encoding="utf-8-sig")
+    col_ini, col_fim = (("janela_ini_s", "janela_fim_s") if "janela_ini_s" in df.columns
+                        else ("inicio_s", "fim_s"))
 
     linhas = []
     print(f"{'Canal':<8} | {'pico antigo':<14} | {'pico novo (in-banda)':<18} | "
@@ -97,8 +106,14 @@ def main():
     for _, r in df.iterrows():
         canal = str(r["canal"])
         arquivo = str(r["arquivo"])
-        path = os.path.join(args.pasta_ns2, arquivo)
-        ini, fim = float(r["inicio_s"]), float(r["fim_s"])
+        if args.pasta_ns2:
+            path = os.path.join(args.pasta_ns2, arquivo)
+        else:
+            path = localiza_ns2(arquivo, dica=str(r.get("sessao", "")))
+            if path is None:
+                print(f"{canal:<8} | [skip] {arquivo} não encontrado no workspace")
+                continue
+        ini, fim = float(r[col_ini]), float(r[col_fim])
         fp_old, fa_old = float(r["fase_pico_hz"]), float(r["amp_pico_hz"])
 
         dados, fs, nomes = le_ns2(path)
@@ -138,7 +153,7 @@ def main():
               f"{'sim' if fdr_sig_novo else 'nao'} | {verdict}")
 
         linhas.append({
-            "rotulo": r.get("rotulo"), "canal": canal, "arquivo": arquivo,
+            "rotulo": r.get("rotulo"), "sessao": r.get("sessao"), "canal": canal, "arquivo": arquivo,
             "inicio_s": ini, "fim_s": fim, "par": args.par,
             "fase_antiga_hz": fp_old, "amp_antiga_hz": fa_old, "z_antiga": round(z_old, 2),
             "fase_nova_hz": fp_new, "amp_nova_hz": fa_new, "z_nova": round(z_new, 2),
@@ -147,7 +162,7 @@ def main():
         })
 
     out = pd.DataFrame(linhas)
-    out.to_csv(args.saida, index=False)
+    out.to_csv(args.saida, index=False, encoding="utf-8-sig")
     print(f"\nSalvo: {args.saida} ({len(out)} linhas)")
 
 

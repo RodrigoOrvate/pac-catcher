@@ -15,7 +15,6 @@ Objetivo:
 
 import os
 import sys
-import glob
 import numpy as np
 import pandas as pd
 from scipy.signal import welch
@@ -29,9 +28,14 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(SCRIPT_DIR, '..'))
 from pac_core.io import carrega_dados
 from pac_core.filtering import aplica_notch
-from pac_core.workspace import BASE_LAC_NOCI
+from pac_core.workspace import BASE_RESULTADOS, localiza_ns2
 
-CSV_VENCEDORES = os.path.join(SCRIPT_DIR, '..', 'resultados', 'candidatos_vencedores_OURO_PURIFICADO_v2.csv')
+CSV_VENCEDORES = os.path.join(BASE_RESULTADOS, 'candidatos_vencedores_OURO_PURIFICADO_v2.csv')
+# Dados brutos das figuras 1 e 4 de gerar_figuras_dissertacao.py (antes
+# simuladas/digitadas à mão): probabilidades fora-da-amostra de cada cenário
+# e a trajetória de teta rápida nos 3 s antes de cada par evento/controle.
+CSV_OOF = os.path.join(BASE_RESULTADOS, '_oof_lfp_ultracurto.csv')
+CSV_TRAJETORIA = os.path.join(BASE_RESULTADOS, '_trajetoria_teta_pre_evento.csv')
 NOTCH_HZ = [60.0, 120.0, 180.0, 240.0]
 CONTROL_OFFSET_S = 60.0
 
@@ -41,19 +45,6 @@ BANDAS = {
     "gamma_lenta": (30.0, 55.0),
     "gamma_rapida": (60.0, 90.0),
 }
-
-
-def resolve_pasta_basal(sessao_str, arquivo):
-    nome_pasta = sessao_str
-    sufixo = "_Basal antes da infusao"
-    if nome_pasta.endswith(sufixo):
-        nome_pasta = nome_pasta[:-len(sufixo)]
-    candidatos = glob.glob(os.path.join(BASE_LAC_NOCI, "*", nome_pasta, "Basal antes da infusao"))
-    candidatos += [c for c in glob.glob(os.path.join(BASE_LAC_NOCI, "*", nome_pasta)) if c not in candidatos]
-    for c in candidatos:
-        if os.path.isfile(os.path.join(c, arquivo)):
-            return c
-    return None
 
 
 def extrair_potencias(sig, fs):
@@ -78,10 +69,9 @@ def processar_eventos():
 
     registros = []
     for idx, row in df.iterrows():
-        pasta = resolve_pasta_basal(str(row["sessao"]), str(row["arquivo"]))
-        if pasta is None:
+        ns2_path = localiza_ns2(row["arquivo"], dica=str(row["sessao"]))
+        if ns2_path is None:
             continue
-        ns2_path = os.path.join(pasta, row["arquivo"])
         if ns2_path not in _cache:
             _cache[ns2_path] = carrega_dados(ns2_path)
         dados, fs, canal_ids = _cache[ns2_path]
@@ -167,6 +157,8 @@ def processar_eventos():
             "ev_pre2": feat_pre2_ev,
             "ev_pre1": feat_pre1_ev,
             "ev_slope_teta": slope_teta_ev,
+            "ev_teta_traj": teta_traj_ev,
+            "ct_teta_traj": teta_traj_ct,
             "ev_on1": feat_on1_ev,
             "ev_on2": feat_on2_ev,
             # Controle
@@ -288,6 +280,7 @@ def avaliar_classificadores(registros):
         ("6. Onset 2s [0s, +2s] (Closed-loop On-line)", "ev_on2", "ct_on2", False),
     ]
 
+    oofs = []
     for titulo, chave_ev, chave_ct, inclui_slope in cenarios:
         X_list = []
         y_list = []
@@ -315,6 +308,7 @@ def avaliar_classificadores(registros):
 
         y_proba = cross_val_predict(clf, X, y, cv=cv, method="predict_proba")[:, 1]
         y_pred = (y_proba >= 0.5).astype(int)
+        oofs.append(pd.DataFrame({"cenario": titulo, "y_true": y, "y_proba": y_proba}))
 
         acc = accuracy_score(y, y_pred)
         auc = roc_auc_score(y, y_proba)
@@ -331,14 +325,34 @@ def avaliar_classificadores(registros):
             best_idx = np.argmax(f1s)
             print(f"  --> Melhor limiar por F1 ({thrs[best_idx]:.3f}): Precisão={precs[best_idx]:.3f}, Recall={recs[best_idx]:.3f}, F1={f1s[best_idx]:.3f}")
 
+    return pd.concat(oofs, ignore_index=True)
+
+
+def exporta_trajetorias(registros):
+    """Potência de teta rápida em [-3,-2], [-2,-1], [-1,0] s de cada par
+    evento/controle + inclinações -- base real da figura 4."""
+    linhas = []
+    for r in registros:
+        linha = {"arquivo": r["arquivo"], "canal": r["canal"], "comportamento": r["comportamento"],
+                 "ev_slope_teta": r["ev_slope_teta"], "ct_slope_teta": r["ct_slope_teta"]}
+        for t, v_ev, v_ct in zip((-3, -2, -1), r["ev_teta_traj"], r["ct_teta_traj"]):
+            linha[f"ev_teta_{t}s"] = v_ev
+            linha[f"ct_teta_{t}s"] = v_ct
+        linhas.append(linha)
+    pd.DataFrame(linhas).to_csv(CSV_TRAJETORIA, index=False, encoding="utf-8-sig")
+    print(f"Trajetórias de teta salvas em: {CSV_TRAJETORIA}")
+
 
 def main():
     registros = processar_eventos()
     if not registros:
         print("Nenhum registro extraído. Verifique os caminhos dos arquivos .ns2.")
         return
+    exporta_trajetorias(registros)
     rodar_testes_estatisticos(registros)
-    avaliar_classificadores(registros)
+    oof = avaliar_classificadores(registros)
+    oof.to_csv(CSV_OOF, index=False, encoding="utf-8-sig")
+    print(f"Probabilidades fora-da-amostra salvas em: {CSV_OOF}")
 
 
 if __name__ == "__main__":

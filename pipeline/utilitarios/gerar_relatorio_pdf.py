@@ -1,151 +1,155 @@
-"""Gera PDF final consolidado dos vencedores PAC Theta-Gamma (CSV-driven).
+"""Gera PDF consolidado dos vencedores PAC teta-gama (CSV-driven).
 
-Regra de ouro observada: NENHUM dado de sessão entra no código. O gerador lê o
-vencedores_consolidado.csv do estudo (criado pelo pipeline em
-RESULTADOS_CONSOLIDADOS/) e resolve as figuras no mesmo diretório.
+Regra de ouro: NENHUM dado de sessão entra no código. Título, data, ratos,
+condições e contagens saem do próprio CSV; as figuras (coluna `png`, nome do
+comodulograma gerado pelo pipeline) são localizadas pelo nome sob
+RESULTADOS_MESTRADO (ou --pasta_figuras).
 
-Formato do CSV (uma linha por vencedor validado):
-    sessao,canal,comportamento,z,pico,classificacao,veredito,observacoes,figura
+Formato do CSV: o dos vencedores consolidados atuais
+(`candidatos_vencedores_OURO_PURIFICADO_v2.csv` / `candidatos_vencedores_consolidados.csv`),
+uma linha por canal x par. Colunas usadas: sessao, canal, par, arquivo,
+janela_ini_s, janela_fim_s, z_score_refinado, fase_pico_hz, amp_pico_hz,
+comportamento, png e (opcionais) rato, condicao_x/condicao, observacoes.
 
-Saída: relatorio_final_<ESTUDO>_NOCI.pdf no diretório RESULTADOS_CONSOLIDADOS
-do CSV (o nome do estudo é derivado do caminho).
-
-    python gerar_relatorio_pdf.py \
-        --csv "../MTESC05_NOCI/RESULTADOS_CONSOLIDADOS/vencedores_consolidado.csv"
+    python pipeline/utilitarios/gerar_relatorio_pdf.py
+    python pipeline/utilitarios/gerar_relatorio_pdf.py --csv resultados/X.csv --saida relatorio.pdf
 """
 import argparse
-import csv
+import datetime
 import os
-import re
+import sys
 
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.units import cm
-from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer, Image,
-                                Table, TableStyle, PageBreak)
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+import pandas as pd
 from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.units import cm
+from reportlab.platypus import (Image, PageBreak, Paragraph, SimpleDocTemplate,
+                                Spacer, Table, TableStyle)
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from pac_core.workspace import BASE_RESULTADOS, BASE_RESULTADOS_MESTRADO
+
+COLUNAS_OBRIGATORIAS = ["sessao", "canal", "par", "arquivo", "janela_ini_s", "janela_fim_s",
+                        "z_score_refinado", "fase_pico_hz", "amp_pico_hz", "comportamento", "png"]
 
 
-def _nome_estudo(csv_path):
-    # <estudo>/RESULTADOS_CONSOLIDADOS/vencedores_consolidado.csv
-    consolidado_dir = os.path.dirname(os.path.abspath(csv_path))
-    raiz = os.path.basename(os.path.dirname(consolidado_dir))  # ex.: MTESC05_NOCI
-    sigla = re.sub(r"_NOCI$", "", raiz) if raiz.endswith("_NOCI") else raiz
-    return sigla, raiz, consolidado_dir
+def indexa_figuras(nomes, pasta):
+    """nome do PNG -> caminho completo (primeira ocorrência sob `pasta`)."""
+    alvo, idx = set(nomes), {}
+    for raiz, _, arquivos in os.walk(pasta):
+        for f in arquivos:
+            if f in alvo and f not in idx:
+                idx[f] = os.path.join(raiz, f)
+    return idx
 
 
-def _sessao_label(s):
-    if s.startswith("S") and s[1:].isdigit():
-        return f"Sessão {int(s[1:])}"
-    return s
+def _txt(v):
+    return "" if pd.isna(v) else str(v)
+
+
+def _tabela(dados, larguras, cor_cab):
+    t = Table(dados, colWidths=larguras, repeatRows=1)
+    t.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(cor_cab)),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 8),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.HexColor("#ecf0f1"), colors.white]),
+        ("GRID", (0, 0), (-1, -1), 0.4, colors.grey),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+    ]))
+    return t
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--csv", required=True,
-                    help="vencedores_consolidado.csv do estudo")
+    ap.add_argument("--csv", default=os.path.join(BASE_RESULTADOS, "candidatos_vencedores_OURO_PURIFICADO_v2.csv"),
+                    help="CSV de vencedores (default: resultados/candidatos_vencedores_OURO_PURIFICADO_v2.csv, "
+                         "o mesmo que o preditor usa)")
+    ap.add_argument("--saida", default=None,
+                    help="PDF de saída (default: relatorio_<nome do csv>.pdf ao lado do CSV)")
+    ap.add_argument("--pasta_figuras", default=BASE_RESULTADOS_MESTRADO,
+                    help="Raiz onde procurar os PNGs da coluna `png` (default: RESULTADOS_MESTRADO)")
     args = ap.parse_args()
 
-    sigla, raiz, consolidado_dir = _nome_estudo(args.csv)
-    out = os.path.join(consolidado_dir, f"relatorio_final_{raiz}.pdf")
+    df = pd.read_csv(args.csv, encoding="utf-8-sig")
+    faltando = [c for c in COLUNAS_OBRIGATORIAS if c not in df.columns]
+    if faltando:
+        sys.exit(f"CSV sem as colunas {faltando} -- esperado o schema dos vencedores consolidados.")
+    df = df.sort_values("z_score_refinado", ascending=False).reset_index(drop=True)
 
-    with open(args.csv, encoding="utf-8") as f:
-        rows = list(csv.DictReader(f))
+    saida = args.saida or os.path.join(
+        os.path.dirname(os.path.abspath(args.csv)),
+        f"relatorio_{os.path.splitext(os.path.basename(args.csv))[0]}.pdf")
+    figuras = indexa_figuras(df["png"].dropna(), args.pasta_figuras)
 
-    n_forte = sum(1 for r in rows if r["classificacao"].strip().lower() == "forte")
-    n_mod = sum(1 for r in rows if r["classificacao"].strip().lower() != "forte")
+    col_cond = next((c for c in ("condicao", "condicao_x") if c in df.columns), None)
+    ratos = sorted(df["rato"].dropna().unique()) if "rato" in df.columns else []
+    condicoes = sorted(df[col_cond].dropna().unique()) if col_cond else []
+    n_eventos = len(df.drop_duplicates(["sessao", "arquivo", "janela_ini_s", "janela_fim_s"]))
 
-    doc = SimpleDocTemplate(out, pagesize=A4, rightMargin=2*cm, leftMargin=2*cm,
-                            topMargin=2*cm, bottomMargin=2*cm)
     styles = getSampleStyleSheet()
-    title = ParagraphStyle("T", parent=styles["Title"], fontSize=18,
-                           textColor=colors.HexColor("#1a1a1a"), spaceAfter=15,
-                           alignment=1)
+    title = ParagraphStyle("T", parent=styles["Title"], fontSize=18, spaceAfter=15)
     h2 = ParagraphStyle("H2", parent=styles["Heading2"], fontSize=13,
-                        textColor=colors.HexColor("#2c3e50"), spaceAfter=8,
-                        spaceBefore=12)
-    body = ParagraphStyle("B", parent=styles["Normal"], fontSize=10,
-                          textColor=colors.HexColor("#333"), spaceAfter=5)
-    story = []
+                        textColor=colors.HexColor("#2c3e50"), spaceAfter=8, spaceBefore=12)
+    body = ParagraphStyle("B", parent=styles["Normal"], fontSize=10, spaceAfter=5)
+    story = [
+        Paragraph("Relatório — Vencedores PAC teta-gama", title),
+        Paragraph(f"Fonte: <i>{os.path.basename(args.csv)}</i> | "
+                  f"Gerado em {datetime.date.today():%d/%m/%Y}", body),
+        Paragraph(f"{len(df)} linha(s) canal x par, {n_eventos} janela(s) única(s)"
+                  + (f" | Ratos: {', '.join(ratos)}" if ratos else "")
+                  + (f" | Condições: {', '.join(map(str, condicoes))}" if condicoes else ""), body),
+        Spacer(1, 0.3 * cm),
+        Paragraph("Resumo", h2),
+        Paragraph("Cada linha passou pelos portões do pipeline: estatístico (Candidato robusto, "
+                  "FDR + ajuste Gama), FOOOF, harmônico e conferência comportamental por vídeo.", body),
+        Paragraph("Pseudoreplicação espacial: canais com o mesmo pico na mesma janela são UM evento "
+                  "biológico -- a contagem de janelas únicas acima já colapsa isso; a tabela abaixo "
+                  "mantém a granularidade canal x par.", body),
+        Paragraph("Por comportamento (janelas únicas)", h2),
+    ]
+    por_comp = (df.drop_duplicates(["sessao", "arquivo", "janela_ini_s", "janela_fim_s"])
+                ["comportamento"].value_counts())
+    story.append(_tabela([["Comportamento", "Janelas"]] + [[k, str(v)] for k, v in por_comp.items()],
+                         [8 * cm, 3 * cm], "#2c3e50"))
 
-    story.append(Paragraph("Relatório Final — Vencedores PAC ΘΓ", title))
-    story.append(Paragraph(f"{sigla} NOCI — Basal", body))
-    story.append(Paragraph(f"Data: 30/08/2026 | {len(rows)} evento(s) validado(s) "
-                           f"({n_forte} forte(s), {n_mod} moderado(s))", body))
-    story.append(Spacer(1, 0.4*cm))
+    story.append(Paragraph("Vencedores (ordenados por Z refinado)", h2))
+    linhas = [["Rato", "Canal", "Par", "Janela (s)", "Z", "Pico (Hz)", "Comportamento"]]
+    for _, r in df.iterrows():
+        linhas.append([_txt(r.get("rato")), _txt(r["canal"]), r["par"],
+                       f"{r['janela_ini_s']:.0f}-{r['janela_fim_s']:.0f}",
+                       f"{r['z_score_refinado']:.2f}",
+                       f"{r['fase_pico_hz']:.0f} x {r['amp_pico_hz']:.0f}", _txt(r["comportamento"])])
+    story.append(_tabela(linhas, [1.8 * cm, 1.3 * cm, 2.3 * cm, 2.2 * cm, 1.4 * cm, 2.2 * cm, 5 * cm],
+                         "#2c3e50"))
 
-    story.append(Paragraph("Resumo", h2))
-    story.append(Paragraph(
-        f"Consolidação dos acoplamentos Theta-Gamma validados no estudo {sigla} "
-        f"NOCI (basal, sem interação), a partir de <i>vencedores_consolidado.csv</i>. "
-        "Cada vencedor passou pelas camadas de validação do pipeline v2 "
-        "(FDR de janela, anti-60 Hz, respiração, FDR do mapa concentrado em ΘΓ, "
-        "robustez, conferência comportamental por vídeo).", body))
-    story.append(Paragraph(
-        "Pseudoreplicação espacial: canais com pico idêntico no mesmo arquivo/janela "
-        "foram tratados como UM evento co-detectado (representante de maior z), "
-        "não como casos independentes.", body))
-
-    story.append(Paragraph("Classificação", h2))
-    tbl_rows = [["Canal", "Sessão", "Z", "Classe", "Comportamento"]]
-    for r in rows:
-        tbl_rows.append([r["canal"], r["sessao"], r["z"], r["classificacao"],
-                         r["comportamento"]])
-    tbl = Table(tbl_rows, colWidths=[2.5*cm, 2.5*cm, 2*cm, 2.5*cm, 5.5*cm])
-    tbl.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2c3e50")),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
-        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, -1), 9),
-        ("ALIGN", (0, 0), (-1, -1), "LEFT"),
-        ("BOTTOMPADDING", (0, 0), (-1, 0), 6),
-        ("ROWBACKGROUNDS", (0, 1), (-1, -1),
-         [colors.HexColor("#ecf0f1"), colors.white]),
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-    ]))
-    story.append(tbl)
-    story.append(Spacer(1, 0.4*cm))
-
-    for i, r in enumerate(rows):
-        if i > 0:
-            story.append(PageBreak())
-        cor = (colors.HexColor("#27ae60")
-               if r["classificacao"].strip().lower() == "forte"
-               else colors.HexColor("#3498db"))
-        story.append(Paragraph(f"{_sessao_label(r['sessao'])} — {r['canal']}", h2))
-        story.append(Paragraph(
-            f"<b>{r['classificacao']}</b> | Z={r['z']} | {r['pico']}",
-            ParagraphStyle("x", parent=body, textColor=cor, fontSize=11)))
-        img = os.path.join(consolidado_dir, r["figura"])
-        if os.path.exists(img):
-            story.append(Image(img, width=16*cm, height=9*cm))
+    for _, r in df.iterrows():
+        story.append(PageBreak())
+        story.append(Paragraph(f"{_txt(r.get('rato'))} — canal {r['canal']} — {r['par']}", h2))
+        story.append(Paragraph(_txt(r["sessao"]), body))
+        img = figuras.get(r["png"])
+        if img:
+            story.append(Image(img, width=16 * cm, height=9 * cm, kind="proportional"))
         else:
-            story.append(Paragraph(f"[Imagem não encontrada: {img}]", body))
-        story.append(Spacer(1, 0.2*cm))
-        d = [["Métrica", "Valor"],
-             ["Canal", r["canal"]],
-             ["Sessão", r["sessao"]],
-             ["Comportamento", r["comportamento"]],
-             ["Z-Score", r["z"]],
-             ["Pico", r["pico"]],
-             ["Classe", r["classificacao"]],
-             ["Observações", r["observacoes"]]]
-        t2 = Table(d, colWidths=[3.5*cm, 11.5*cm])
-        t2.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#3498db")),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
-            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("FONTSIZE", (0, 0), (-1, 0), 10),
-            ("FONTSIZE", (0, 1), (-1, -1), 9),
-            ("BACKGROUND", (0, 1), (0, -1), colors.HexColor("#ecf0f1")),
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-            ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ]))
-        story.append(t2)
+            story.append(Paragraph(f"[Figura não encontrada: {_txt(r['png'])}]", body))
+        story.append(Spacer(1, 0.2 * cm))
+        story.append(_tabela([
+            ["Métrica", "Valor"],
+            ["Arquivo", r["arquivo"]],
+            ["Janela", f"{r['janela_ini_s']:.1f}-{r['janela_fim_s']:.1f} s"],
+            ["Condição", _txt(r.get(col_cond)) if col_cond else ""],
+            ["Z refinado", f"{r['z_score_refinado']:.2f}"],
+            ["Pico (fase x amp)", f"{r['fase_pico_hz']:.1f} x {r['amp_pico_hz']:.1f} Hz"],
+            ["Comportamento", _txt(r["comportamento"])],
+            ["Observações", _txt(r.get("observacoes"))],
+        ], [3.5 * cm, 11.5 * cm], "#3498db"))
 
-    doc.build(story)
-    print(f"PDF gerado: {out}")
+    SimpleDocTemplate(saida, pagesize=A4, rightMargin=2 * cm, leftMargin=2 * cm,
+                      topMargin=2 * cm, bottomMargin=2 * cm).build(story)
+    print(f"PDF gerado: {saida} ({len(df)} vencedores, {len(figuras)} figuras encontradas)")
 
 
 if __name__ == "__main__":

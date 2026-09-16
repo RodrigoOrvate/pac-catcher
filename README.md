@@ -23,22 +23,40 @@ O desenvolvimento deste fluxo é fortemente embasado em literatura de referênci
 
 ## 🚀 Como Rodar o Pipeline
 
-Abaixo estão as etapas principais do pipeline. Todo o código reside aqui. Você apenas apontará os comandos para as pastas com os seus dados `.ns2`.
+Todo o código reside aqui (`SCRIPT/`). Há duas formas de rodar as mesmas etapas — por baixo, os scripts são os mesmos:
+
+- **Programa desktop (ThetaGamma-Studio)** — formulários com log ao vivo, sem digitar comandos. Ver a seção *Programa desktop* no fim deste README.
+- **Linha de comando** — os Passos 1 a 5 abaixo, apontando os scripts para as pastas com os seus dados `.ns2`.
 
 > [!NOTE]
-> Para uma explicação exaustiva, teórica e matemática de **TODOS** os scripts listados abaixo, consulte o arquivo **[`scripts_explicados.md`](./scripts_explicados.md)**. Ele é o verdadeiro manual técnico interno do pipeline.
+> Para uma explicação exaustiva, teórica e matemática de **TODOS** os scripts, consulte **[`docs/scripts_explicados.md`](./docs/scripts_explicados.md)**. Ele é o verdadeiro manual técnico interno do pipeline.
+
+### Ordem real de execução
+
+Os Passos estão numerados por tema; a dependência de dados é esta:
+
+1. **Por sessão:** Passos 1 → 2 → 3 + auditorias de skewness/harmônico — ou tudo de uma vez com `processa_sessao.py` (ver *Atalho* abaixo).
+2. **Dataset mestre:** Passo 3.6 — agrega todas as sessões e enriquece com FOOOF + portão de banda larga.
+3. **Comportamento:** Passo 3.5 — template → anotação no vídeo → junta ao dataset mestre. Depende do dataset do Passo 3.6.
+4. **Vencedores:** Passo 3.8 — consolidação final.
+5. **Figuras e exploração:** Passos 4 e 5.
 
 ## 📂 Estrutura do Repositório (Guia de Scripts)
 
 O código é unificado e vive na pasta raiz (`SCRIPT/`). Abaixo, o mapa de ferramentas:
 
-- **`pac_core/`**: Núcleo matemático compartilhado (extraído em 2026-09, ver `scripts_explicados.md` para o histórico da refatoração). Nenhum outro módulo deve reimplementar o que está aqui.
+- **`pac_core/`**: Núcleo matemático compartilhado (extraído em 2026-09, ver `docs/scripts_explicados.md` para o histórico da refatoração). Nenhum outro módulo deve reimplementar o que está aqui.
   - `io.py`: Leitura de `.ns2` (Blackrock), `.bin` legado e `.mat` (MATLAB/tetrodo), dispatcher único por extensão via `carrega_dados()`.
   - `filtering.py`: Filtro Butterworth passa-faixa (`filtra_sinal`) e notch multi-harmônico (`aplica_notch`) canônicos.
   - `pac_metrics.py`: KL-MI de Tort + surrogates por deslocamento circular (`calcula_mi_com_surrogates`, `z_score_mi`, `gera_deslocamentos`).
+  - `workspace.py`: fonte única do caminho-base do workspace (`BASE_WORKSPACE`, `BASE_LAC_NOCI`, `BASE_RESULTADOS_MESTRADO`) — nunca faça hardcode de `D:\acoplamento_theta-gamma`; sobrescreva com a variável de ambiente `ACOPLAMENTO_BASE` se a pasta mudar de lugar.
   - `pipeline/ns2_utils.py` (raiz de `pipeline/`) e `pipeline/dataset_mestre/{atualiza_fooof_mestre,aplica_portao_banda_larga_mestre}.py` são **shims finos** que re-exportam daqui/de `enriquece_dataset_mestre.py`, preservando CLIs antigas — novo código deve importar de `pac_core` diretamente.
 
-- **`pipeline/`**: O núcleo duro do PAC Catcher, organizado em pastas de etapa (reorganização 2026-09 — ver `scripts_explicados.md` para detalhes da refatoração e a convenção de import qualificado usada):
+- **`pac_studio/`**: API de 1 linha sobre `pac_core` (`analisa_janela()`, `transicao_estado()`) — consolida a sequência notch → filtro → Hilbert → MI + surrogates, e a reconstrução dos pares comportamentais N-1 → N da Hipótese H2. Backend do programa desktop.
+
+- **`dashboard_desktop/`**: o programa desktop ThetaGamma-Studio (Tkinter + ttkbootstrap) — ver a seção *Programa desktop* no fim deste README.
+
+- **`pipeline/`**: O núcleo duro do PAC Catcher, organizado em pastas de etapa (reorganização 2026-09 — ver `docs/scripts_explicados.md` para detalhes da refatoração e a convenção de import qualificado usada):
   - **`processa_sessao.py`** e **`ns2_utils.py`** ficam na raiz de `pipeline/` (orquestrador principal e shim de I/O, não pertencem a uma etapa específica).
   - **`etapa1_triagem/`** (Passo 1 + 0.5): `triagem_pac.py` / `triagem_pac_mat.py` (varredura inicial `.ns2`/`.mat` em busca de Teta-Gama, Teta-HG, Teta-HFO), `triagem_coocorrencia.py` (Passo 0.5, resolução amostral HFO/Ripple), `deteccao_ripple.py`, `preprocessa_referencia_diferencial.py`, `inspeciona_evento.py`.
   - **`etapa2_refinamento/`**: `refina_candidatos.py` — p-valor paramétrico (Gama), FDR de Benjamini-Hochberg, filtros de kurtose.
@@ -58,8 +76,9 @@ O código é unificado e vive na pasta raiz (`SCRIPT/`). Abaixo, o mapa de ferra
   - `audita_transientes.py`, `audita_segmentos.py`: Garantem que o acoplamento não é dirigido por *spikes* (espigões) de ruído mecânico.
   - `audita_held_out.py`: Testa double-dipping em janelas reancoradas (ilha vs. resto) — pré-requisito estrutural incompatível com `audita_janela.py`, fica separado.
 
-- **`preditor/`**: Ferramentas experimentais de Machine Learning (`treinar_preditor.py`, `prever_pac_tempo_real.py`, `analisar_pre_evento.py`) para prever ocorrência de PAC em tempo real.
-- **`tests/`**: Suite de testes automatizados (`test_synthetic_harmonico.py`, etc.) que simulam LFPs sintéticos ruidosos para garantir que a matemática do pipeline não falha sob *stress*.
+- **`preditor/`**: Protótipo de previsão de PAC para closed-loop (`preditor_estado_comportamental.py`, `prever_pac_tempo_real.py`, `validar_preditor.py`, entre outros). **Não validado para acionar hardware** (AUC-ROC 0,618) — ver `preditor/README_preditor.md`.
+- **`tests/`**: Scripts standalone — rode `python tests/<arquivo>.py` (rodar `pytest` não testa nada). `test_pac_metrics_parity.py` e `test_pac_studio.py` são os gates: paridade bit a bit do núcleo e da API com o pipeline em lote, saem com erro se falharem. Os demais simulam LFPs sintéticos (`test_synthetic_harmonico.py`, etc.) ou rodam em dados reais do MTESC04 (`test_integracao_pipeline.py`, `test_referencia_diferencial.py`, `sweep_ripple.py`) e imprimem o resultado para conferência. Tabela completa em `docs/scripts_explicados.md`, seção 23.
+- **`docs/`**: Documentação — `scripts_explicados.md` (manual técnico de todos os scripts), `manual_usuario.md` (programa desktop), sínteses de investigação, decisões e o capítulo metodológico da ferramenta.
 
 ---
 
@@ -69,6 +88,22 @@ Instale as bibliotecas necessárias:
 pip install -r requirements.txt
 ```
 *(Certifique-se de usar Python 3.9+ e de ter suas sessões `.ns2` organizadas nas pastas correspondentes).*
+
+---
+
+### Atalho: sessão inteira de uma vez (`processa_sessao.py`)
+É o que o processamento em lote usa: roda os Passos 1 → 3 e as auditorias de skewness/harmônico canal a canal, para uma pasta de sessão (ou de condição de infusão):
+```bash
+python pipeline/processa_sessao.py \
+    --pasta "<LAC_NOCI>/MTESC05_NOCI/MTESC05 -- 2 - infusao - 09-07-2024/0h pos infusao - 30min" \
+    --saida "<RESULTADOS_MESTRADO>/MTESC05_NOCI_2_09-07-2024" \
+    --min_janelas 3
+```
+- **Estágio 0:** lê os primeiros 30 s do primeiro `.ns2`, descarta canais com amplitude morta e sinaliza (sem descartar) outliers de RMS.
+- **Estágio 1:** `triagem_coocorrencia.py` conta, arquivo a arquivo, as janelas com teta + gama e teta + HG. O canal só segue para o pipeline pesado se uma das duas contagens chegar a `--min_janelas` (padrão 3). A co-ocorrência teta + HFO é registrada, mas **não** entra nesse corte.
+- **Estágio 2:** triagem → refinamento → comodulograma (3 pares) → `audita_skewness.py` / `audita_harmonico.py` / `audita_harmonico_hfo.py`.
+
+A saída fica em `<saida>/<nome da pasta>/chanN/`, mais um `resumo_canais.csv` com as contagens de co-ocorrência de todos os canais (útil para entender uma sessão com zero candidatos). Em `RESULTADOS_MESTRADO`, o basal fica em `basal/LAC/` e `basal/NOCI/`, e cada rodada de infusão em `<RATO>_NOCI_<N>_<DATA>/<condição>/`.
 
 ---
 
@@ -123,6 +158,8 @@ Para correlacionar os episódios de acoplamento detectados com o comportamento r
    #   --csv_mestre resultados/dataset_mestre_final.csv
    #   --saida      pipeline/comportamento/template_comportamento.csv
    ```
+   > [!WARNING]
+   > Depende do `dataset_mestre_final.csv` do **Passo 3.6** — rode-o antes. O gerador lista **toda** janela do CSV que receber, inclusive as "Não significativo após FDR" (o agregador não filtra por veredito). Passe um CSV já filtrado para `veredito_refino == "Candidato robusto"`, senão o template ganha centenas de janelas de ruído estatístico para anotar à toa. O template atual foi gerado assim.
 
 2. **Anotar via Interface Gráfica:**
    Abre o aplicativo gráfico que sincroniza o vídeo contínuo (`.MPG`, `.mp4`) com os blocos de gravação neural (`.ns2`):
@@ -158,6 +195,8 @@ python pipeline/dataset_mestre/enriquece_dataset_mestre.py --entrada "<sessao>/d
 ```
 Por padrão `enriquece_dataset_mestre.py` roda as duas etapas (`--etapas fooof portao`) e **não sobrescreve a entrada** (`--in_place` reproduz o comportamento antigo, se precisar). Os comandos antigos (`atualiza_fooof_mestre.py`, `aplica_portao_banda_larga_mestre.py`) continuam funcionando idênticos, como atalhos finos para este script.
 
+O agregador varre a pasta **recursivamente** e tira do caminho de cada canal as colunas `sessao` (a parte com o prefixo do rato, ex. `MTESC05_NOCI_2_09-07-2024`), `grupo` (`NOCI`/`LAC`/`VEH` — nas sessões do MTESCnn_LAC vale o que foi infundido, `-lac_hem...` ou `-veh_hem...` no nome da pasta) e `condicao` (`basal`, `0h_pos`, `1h_pos`, `2h_pos`). Pastas que começam com `_` (`_CONTAMINADO_nao_usar/`, `_LAC_basal_antigo_nao_usar/`) são ignoradas. As pastas de sessão do LAC levam o rato no nome desde 2026-09-14 (`MTESC03 -- Rodada-1-02-05-2024-lac_hemdir`; mapeamento em `LAC_NOCI/_renomeacoes_pastas_LAC.csv`). Lote do basal: `RESULTADOS_MESTRADO/roda_lote_mtesc.ps1 -ratos "MTESC0?_LAC" -listar` mostra o plano sem rodar.
+
 ---
 
 ### Passo 3.7: Auditorias Específicas
@@ -185,7 +224,13 @@ python pipeline/dataset_mestre/consolida_vencedores.py
 #   --entrada resultados/dataset_mestre_COM_COMPORTAMENTO.csv
 #   --saida   resultados/candidatos_vencedores_consolidados.csv
 ```
-Critérios aplicados: `veredito_refino == 'Candidato robusto'` + portão FOOOF (`erro_ajuste < 0.15`, knee válido, pico periódico real nas duas bandas) + `veredito_harmonico == 'CLEAN'` + comportamento anotado (excluindo `Artefato / Cabo`). Imprime uma síntese de eventos por rato e por comportamento (já colapsando pseudoreplicação espacial só para o relatório — o CSV de saída mantém a granularidade canal×par).
+Critérios aplicados por padrão:
+- **Estatístico:** `veredito_refino == 'Candidato robusto'`.
+- **FOOOF:** erro de ajuste < 0,15 e pico periódico real nas duas bandas (teta e gama). Knee válido **não** é exigido — é diagnóstico de identificabilidade do expoente 1/f, não de autenticidade do PAC; `--exigir_knee_valido` reativa o filtro antigo.
+- **Harmônico:** `CLEAN` ou `REVISAR_RAZAO_INTEIRA` (coincidência numérica sem travamento de fase). Reprova todo o resto — evidência real de contaminação (PLV > 0,8, ambiguidade de ordem, teta assimétrico) ou sem referência de teta; `--exigir_harmonico_clean` reativa o filtro antigo.
+- **Comportamento:** anotado e diferente de `Artefato / Cabo`.
+
+Imprime uma síntese de eventos por rato e por comportamento (já colapsando pseudoreplicação espacial só para o relatório — o CSV de saída mantém a granularidade canal×par).
 
 ---
 
@@ -223,3 +268,34 @@ python pipeline/etapa5_exploracao/comodulogram_interativo.py \
 ```
 
 > **Atenção ao canal:** `--canal` usa a MESMA convenção 1-based da coluna `canal` do dataset mestre (linha com `canal=13` no CSV → `--canal 13` no comando); o script converte internamente para o índice 0-based do array de dados. Não confundir com o nome nativo do canal no `.ns2` (ex.: `chan26`), que só aparece no título da figura para conferência cruzada.
+
+---
+
+## 🖥️ Programa desktop (ThetaGamma-Studio)
+
+Interface gráfica para rodar o pipeline e inspecionar os resultados sem digitar comandos. Não reimplementa nenhum cálculo: cada botão chama os mesmos scripts dos Passos acima (a paridade com o pipeline em lote é verificada por `tests/test_pac_studio.py`).
+
+```bash
+python dashboard_desktop/app.py
+```
+
+A janela abre maximizada, com três seções:
+
+**Pipeline** — cada sub-aba é um formulário com os parâmetros reais do script e um log ao vivo; **Parar** encerra a etapa e os processos que ela disparou.
+
+| Sub-aba | Script | Equivale a |
+|---|---|---|
+| Sessão Completa | `processa_sessao.py` | *Atalho* (sessão inteira) |
+| Triagem | `triagem_pac.py` (botão **Demo** = teste sintético rápido) | Passo 1 |
+| Refinamento e Filtros | `refina_candidatos.py` + gráfico da distribuição de vereditos | Passo 2 |
+| Comodulograma (lote) | `comodulogram.py --csv` | Passo 3 |
+| Auditorias | `audita_skewness.py`, `audita_harmonico.py`, `audita_harmonico_hfo.py` | Passo 3.7 |
+| Agregação | `agrega_resultados.py` → `enriquece_dataset_mestre.py` → `junta_comportamento.py` → `consolida_vencedores.py` | Passos 3.6, 3.5 (junção) e 3.8 |
+
+`audita_transientes.py` e `audita_footprint.py` ficam fora de propósito: a linha de comando delas é presa a uma sessão específica (casos passados como texto). As saídas padrão da Agregação gravam em `*_novo.csv` e toda etapa pergunta antes de sobrescrever um arquivo existente.
+
+**Análise de Dados** — inspeção de resultados já processados: traçados LFP multicanal com filtros, comodulograma de uma janela, checklist dos portões de qualidade de um candidato, galeria dos 190 vencedores, comportamento (incluindo o χ² da Hipótese H2) e replay do preditor (offline, não aciona hardware).
+
+**Anotador de Vídeo** — abre `anotador_comportamento.py` (Passo 3.5) numa janela separada e mostra o progresso de anotação por sessão.
+
+Código em `dashboard_desktop/` (`app.py` monta as seções; `aba_pipeline.py`, `aba_analise.py`, `aba_anotador.py`; `runner.py` executa os scripts com log ao vivo; `estilo.py` tem o tema). Guia passo a passo: [`docs/manual_usuario.md`](./docs/manual_usuario.md).

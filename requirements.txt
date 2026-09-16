@@ -6,3 +6,6 @@ neo
 fooof
 opencv-python
 Pillow
+ttkbootstrap
+scikit-learn
+joblib

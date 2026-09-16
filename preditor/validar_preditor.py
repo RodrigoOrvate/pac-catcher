@@ -20,7 +20,6 @@ Uso:
 
 import os
 import sys
-import glob
 import numpy as np
 import pandas as pd
 import joblib
@@ -30,7 +29,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(SCRIPT_DIR, '..'))
 from pac_core.io import carrega_dados
 from pac_core.filtering import aplica_notch
-from pac_core.workspace import BASE_LAC_NOCI
+from pac_core.workspace import BASE_RESULTADOS, localiza_ns2
 from pipeline.etapa4_validacao.robustez_parametros import mi_z_par, mvl_z_par
 
 NOTCH_HZ = [60.0, 120.0, 180.0, 240.0]
@@ -41,7 +40,10 @@ PRE_WINDOW = 10
 CONTROL_OFFSET_S = 60   # janela de controle começa event_time + offset
 FEATURES = ['Energia', 'Theta_Energy', 'Gamma_Energy', 'Ratio_TG', 'Theta_Peak',
             'MI_z_oficial', 'MVL_z_oficial', 'Footprint_n_z3']
-CSV_VENCEDORES = os.path.join(SCRIPT_DIR, '..', 'resultados', 'candidatos_vencedores_OURO_PURIFICADO_v2.csv')
+CSV_VENCEDORES = os.path.join(BASE_RESULTADOS, 'candidatos_vencedores_OURO_PURIFICADO_v2.csv')
+# Probabilidades fora-da-amostra (LOOCV) -- lidas por gerar_figuras_dissertacao.py
+# pra desenhar a curva ROC real deste preditor (antes a figura era simulada).
+CSV_OOF = os.path.join(BASE_RESULTADOS, '_oof_lfp_10s.csv')
 
 
 def extrair_features_espectrais(window_data):
@@ -88,20 +90,6 @@ def extrair_features(dados_janela, canal_idx, fs, fase_pico_hz, amp_pico_hz, rng
                      extrair_features_pac(dados_janela, canal_idx, fs, fase_pico_hz, amp_pico_hz, rng))
 
 
-def resolve_pasta_basal(sessao_str, arquivo):
-    """Mesma lógica usada em gera_galeria_top5.py / checa_desalinhamento_190.py."""
-    nome_pasta = sessao_str
-    sufixo = "_Basal antes da infusao"
-    if nome_pasta.endswith(sufixo):
-        nome_pasta = nome_pasta[: -len(sufixo)]
-    candidatos = glob.glob(os.path.join(BASE_LAC_NOCI, "*", nome_pasta, "Basal antes da infusao"))
-    candidatos += [c for c in glob.glob(os.path.join(BASE_LAC_NOCI, "*", nome_pasta)) if c not in candidatos]
-    for c in candidatos:
-        if os.path.isfile(os.path.join(c, arquivo)):
-            return c
-    return None
-
-
 def carregar_positivos_e_controles():
     """Le o resultado ATUAL do pipeline (candidatos_vencedores_OURO_PURIFICADO_v2.csv,
     190 eventos pos-purificacao por notch) em vez do legado RESULTADOS/vencedores.csv
@@ -117,11 +105,10 @@ def carregar_positivos_e_controles():
         fp = float(row['fase_pico_hz'])
         fa = float(row['amp_pico_hz'])
         rng = np.random.default_rng(42 + row.name)
-        pasta = resolve_pasta_basal(str(row['sessao']), str(row['arquivo']))
-        if pasta is None:
-            print(f"  [skip] sessao={row['sessao']!r} arquivo={row['arquivo']!r} nao resolvido")
+        ns2_path = localiza_ns2(row['arquivo'], dica=str(row['sessao']))
+        if ns2_path is None:
+            print(f"  [skip] sessao={row['sessao']!r} arquivo={row['arquivo']!r} nao encontrado")
             continue
-        ns2_path = os.path.join(pasta, row['arquivo'])
 
         if ns2_path not in _cache:
             _cache[ns2_path] = carrega_dados(ns2_path)
@@ -173,16 +160,23 @@ def main():
 
     # LOOCV com eventos reais fora do treino
     loo = LeaveOneOut()
-    y_true, y_pred = [], []
+    y_true, y_pred, y_proba = [], [], []
     for tr_idx, te_idx in loo.split(X):
         clf.fit(X[tr_idx], y[tr_idx])
+        amostra = X[te_idx].reshape(1, -1)
         y_true.append(y[te_idx[0]])
-        y_pred.append(clf.predict(X[te_idx].reshape(1, -1))[0])
-    y_true, y_pred = np.array(y_true), np.array(y_pred)
+        y_pred.append(clf.predict(amostra)[0])
+        y_proba.append(clf.predict_proba(amostra)[0, list(clf.classes_).index(1)])
+    y_true, y_pred, y_proba = np.array(y_true), np.array(y_pred), np.array(y_proba)
 
+    from sklearn.metrics import roc_auc_score
     print("\n=== Validação LOOCV (controles REAIS, não surrogates) ===")
     acc = np.mean(y_true == y_pred)
-    print(f"Acurácia: {acc:.3f}")
+    print(f"Acurácia: {acc:.3f} | AUC-ROC: {roc_auc_score(y_true, y_proba):.3f}")
+    pd.DataFrame({"y_true": y_true, "y_proba": y_proba,
+                  "arquivo": [m[0] for m in meta], "canal": [m[1] for m in meta],
+                  "tipo": [m[2] for m in meta]}).to_csv(CSV_OOF, index=False, encoding="utf-8-sig")
+    print(f"Probabilidades LOOCV salvas em: {CSV_OOF}")
     cm = confusion_matrix(y_true, y_pred)
     print("Matriz de confusão (linhas=real, colunas=previsto):")
     print("            prev_Controle  prev_PrePAC")

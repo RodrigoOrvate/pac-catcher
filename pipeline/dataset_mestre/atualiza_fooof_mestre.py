@@ -22,16 +22,16 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from pipeline.dataset_mestre.enriquece_dataset_mestre import etapa_fooof
-from pac_core.workspace import BASE_WORKSPACE, BASE_LAC_NOCI
+from pac_core.workspace import BASE_RESULTADOS, BASE_LAC_NOCI
 
 import pandas as pd
 
 
 def main():
     parser = argparse.ArgumentParser(description="Atualiza FOOOF no dataset mestre.")
-    parser.add_argument("--mestre_csv", default=os.path.join(BASE_WORKSPACE, "dataset_mestre_final.csv"),
+    parser.add_argument("--mestre_csv", default=os.path.join(BASE_RESULTADOS, "dataset_mestre_final.csv"),
                         help="CSV mestre atual")
-    parser.add_argument("--saida_csv", default=os.path.join(BASE_WORKSPACE, "dataset_mestre_final_v2.csv"),
+    parser.add_argument("--saida_csv", default=os.path.join(BASE_RESULTADOS, "dataset_mestre_final_v2.csv"),
                         help="CSV mestre atualizado")
     parser.add_argument("--pasta_dados", default=BASE_LAC_NOCI,
                         help="Pasta raiz dos .ns2")

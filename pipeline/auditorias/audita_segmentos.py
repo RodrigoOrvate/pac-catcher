@@ -41,8 +41,8 @@ except Exception:
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--pasta", default="../Basal antes da infusao",
-                    help="Pasta com os .ns2 (padrão: caso 08/07)")
+    ap.add_argument("--pasta", required=True,
+                    help="Pasta com os .ns2")
     ap.add_argument("--arquivo", default="20240708-123605-003.ns2",
                     help=".ns2 dentro de --pasta")
     ap.add_argument("--canal", default="chan22",

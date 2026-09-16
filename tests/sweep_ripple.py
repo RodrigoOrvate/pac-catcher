@@ -2,6 +2,7 @@ import sys
 import os
 import re
 import subprocess
+import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from pac_core.workspace import BASE_LAC_NOCI, BASE_SCRIPT
@@ -22,8 +23,9 @@ for origem_nome, origem_path in origens.items():
     print(f"\nRodando sweep fino para {origem_nome}...")
     for dur in duracoes:
         for dp in dps:
-            cmd = ["python", script_path, "--origem", origem_path, "--canal", "chan1", 
-                   "--saida", "tmp_triagem_fina.csv", "--limiar_dp", str(dp), "--duracao_ms", str(dur)]
+            cmd = [sys.executable, script_path, "--origem", origem_path, "--canal", "chan1",
+                   "--saida", os.path.join(tempfile.gettempdir(), "tmp_triagem_fina.csv"),
+                   "--limiar_dp", str(dp), "--duracao_ms", str(dur)]
             
             try:
                 res = subprocess.run(cmd, capture_output=True, text=True, check=True)

@@ -42,11 +42,14 @@ Uso:
     # -> resultados/candidatos_vencedores_consolidados.csv)
 """
 import argparse
-import glob
 import os
 import re
+import sys
 
 import pandas as pd
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from pac_core.workspace import BASE_LAC_NOCI, BASE_RESULTADOS, localiza_ns2
 
 CHAVE_JANELA = ["sessao", "arquivo", "janela_ini_s", "janela_fim_s"]
 
@@ -54,35 +57,23 @@ CHAVE_JANELA = ["sessao", "arquivo", "janela_ini_s", "janela_fim_s"]
 def resolve_rato(sessao, arquivo, base_lac_noci):
     """Extrai o rato (ex.: 'MTESC04') de uma linha do dataset mestre.
 
-    Sessões NOCI trazem o nome do rato literalmente na string de sessao
-    (ex.: "MTESC04 -- 2 - infusao..."). Sessões do grupo LAC usam nomes de
-    pasta "Rodada-N-DD-MM-2024" que se REPETEM entre MTESC03_LAC e
-    MTESC05_LAC (mesmo protocolo, ratos diferentes) -- para essas,
-    desambigua verificando em qual pasta *_LAC o arquivo .ns2 realmente
-    existe (o nome do arquivo, timestamp da gravação, é único por rato).
+    Sessões com o rato no nome (ex.: "MTESC04 -- 2 - infusao...",
+    "MTESC05_NOCI_2_09-07-2024") resolvem direto. As antigas do LAC
+    ("Rodada-N-DD-MM-2024", que se repetem entre MTESC03_LAC e MTESC05_LAC)
+    resolvem pela pasta onde o .ns2 está de fato (pac_core.workspace.
+    localiza_ns2 -- não depende do nome da pasta da sessão, que foi
+    renomeada com sufixo -lac_hemdir/-veh_hemesq etc.).
     """
     m = re.search(r"MTESC\d+", sessao)
     if m:
         return m.group(0)
-
-    nome_pasta = sessao
-    sufixo = "_Basal antes da infusao"
-    if nome_pasta.endswith(sufixo):
-        nome_pasta = nome_pasta[: -len(sufixo)]
-
-    # Estrutura de pastas do grupo LAC é inconsistente entre datas: a
-    # maioria tem uma subpasta "Basal antes da infusao", mas em algumas
-    # (ex.: MTESC05_LAC/Rodada-1-04-05-2024, Rodada-2-06-05-2024,
-    # Rodada-2-09-05-2024) os .ns2 ficam direto na pasta da sessão --
-    # tenta as duas formas.
-    candidatos = glob.glob(os.path.join(base_lac_noci, "*_LAC", nome_pasta,
-                                        "Basal antes da infusao", str(arquivo)))
-    candidatos += glob.glob(os.path.join(base_lac_noci, "*_LAC", nome_pasta, str(arquivo)))
-    for c in candidatos:
-        m2 = re.search(r"(MTESC\d+)_LAC", c.replace("/", os.sep))
-        if m2:
-            return m2.group(1)
-    return None
+    try:
+        caminho = localiza_ns2(arquivo, dica=sessao, base=base_lac_noci)
+    except ValueError as e:
+        print(f"  [aviso] rato indeterminado: {e}")
+        return None
+    m2 = re.search(r"MTESC\d+", os.path.relpath(caminho, base_lac_noci)) if caminho else None
+    return m2.group(0) if m2 else None
 
 
 def consolida_vencedores(df_mestre, base_lac_noci, erro_fooof_max=0.15,
@@ -154,13 +145,9 @@ def imprime_sintese(vencedores):
 
 
 def main():
-    modulo_dir = os.path.dirname(os.path.abspath(__file__))
-    script_dir = os.path.abspath(os.path.join(modulo_dir, "..", ".."))
-    workspace_root = os.path.abspath(os.path.join(script_dir, ".."))
-
-    padrao_entrada = os.path.join(script_dir, "resultados", "dataset_mestre_COM_COMPORTAMENTO.csv")
-    padrao_saida = os.path.join(script_dir, "resultados", "candidatos_vencedores_consolidados.csv")
-    padrao_lac_noci = os.path.join(workspace_root, "LAC_NOCI")
+    padrao_entrada = os.path.join(BASE_RESULTADOS, "dataset_mestre_COM_COMPORTAMENTO.csv")
+    padrao_saida = os.path.join(BASE_RESULTADOS, "candidatos_vencedores_consolidados.csv")
+    padrao_lac_noci = BASE_LAC_NOCI
 
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)

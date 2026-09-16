@@ -16,6 +16,10 @@ o oposto: roda **depois** de tudo, para dissecar visualmente os
 vencedores já filtrados (Passo 5, ver seção dedicada abaixo).
 
 ```
+processa_sessao.py      → orquestrador por sessão (raiz de pipeline/): estágio 0 (canais
+                          vivos) → estágio 1 (triagem_coocorrencia.py decide se o canal
+                          merece o pipeline pesado) → Passos 1, 2, 3 + auditorias de
+                          skewness/harmônico, canal a canal. É o que roda em lote.
 triagem_pac.py          → Passo 1 (etapa1_triagem): varre TODAS as janelas (10 s / 5 s)
 refina_candidatos.py    → Passo 2 (etapa2_refinamento): FDR de janela + filtros de artefato
 comodulogram.py         → Passo 3 (etapa3_comodulograma): mapas z...scoredos ±notch + FDR do mapa
@@ -43,9 +47,14 @@ notebook exploracao_interativo.ipynb → Passo 5 (etapa5_exploracao): dissecaç�
                           interativa (CLI ou notebook) dos vencedores consolidados,
                           com zoom FOOOF + comodulograma
 pac_core/               → núcleo matemático compartilhado (refatoração
-                          2026-09): io.py, filtering.py, pac_metrics.py.
-                          ns2_utils.py e demais "shims" listados abaixo
-                          reexportam daqui — ver seção dedicada.
+                          2026-09): io.py, filtering.py, pac_metrics.py,
+                          workspace.py. ns2_utils.py e demais "shims"
+                          listados abaixo reexportam daqui — ver seção 17.
+pac_studio/             → API de 1 linha sobre pac_core (seção 19)
+dashboard_desktop/      → programa desktop ThetaGamma-Studio: roda as etapas
+                          acima com log ao vivo e inspeciona resultados (seção 20)
+preditor/               → protótipo de previsão de PAC p/ closed-loop, não
+                          validado p/ hardware (seção 21)
 ```
 
 **Refatoração 2026-09 (Fatia 1+2):** o pipeline passou por uma consolidação
@@ -428,8 +437,8 @@ encapsula os blocos 2-3 (baseline → despike k6/k5 → sub-janelas →
 histograma de fase) para um sinal já em memória — é o que
 `audita_janela.py` chama internamente, sem reler o arquivo.
 
-**CLI (sessão 08/07 default):** `python audita_transientes.py`
-**Nova sessão (via CLI, casos nunca no código):**
+**CLI:** `--pasta_ns2` é obrigatório (antes tinha padrão relativo `../Basal antes da infusao`, que só funcionava rodando de dentro de uma pasta de sessão).
+**Uso (casos nunca no código):**
 ```bash
 python pipeline/auditorias/audita_transientes.py ......pasta_ns2 "<sessao>/<BASAL>" \
     ......saida_dir "<sessao>/RESULTADOS/auditoria" \
@@ -446,8 +455,7 @@ python pipeline/auditorias/audita_transientes.py ......pasta_ns2 "<sessao>/<BASA
 segmento, recomputa o mapa z completo e reporta o z na célula do
 pico original e o pico ΘΓ do próprio segmento.
 
-**Uso (default sessão 08/07):** `python audita_segmentos.py`
-**Nova sessão:**
+**Uso** (`--pasta` obrigatório; o padrão relativo antigo foi removido):
 ```bash
 python pipeline/auditorias/audita_segmentos.py ......pasta "<sessao>/<BASAL>" \
     ......arquivo <arq>.ns2 ......canal chanXX \
@@ -526,6 +534,8 @@ Para correlacionar os episódios de acoplamento detectados com o comportamento r
 - **O que faz:** Varre o CSV mestre de resultados e extrai uma lista única e cronológica de janelas de 10s onde houve detecção de PAC em pelo menos um canal da sessão.
 - **Por que é essencial:** Quando múltiplos canais (ex.: hipocampo CA1, córtex ou estriado) detectam acoplamento na mesma janela temporal, o rato executou exatamente o mesmo comportamento. Agrupar por janela exclusiva evita ter que anotar redundantemente os mesmos 10 segundos várias vezes.
 - **Saída:** `template_comportamento.csv` com colunas `sessao`, `condicao`, `arquivo`, `janela_ini_s`, `janela_fim_s`, `video_tempo_ini`, `video_tempo_fim`, `pares_detectados`, `n_canais_pac`, `comportamento`, `observacoes`.
+- **Filtro:** só `veredito_refino == "Candidato robusto"` (não a cadeia completa de `consolida_vencedores.py`, que já exige comportamento anotado — dependência circular).
+- **Preserva anotações ao regenerar** (2026-09-14): rodar de novo depois de processar mais sessões (ex.: infusão, depois de já ter anotado o basal) casa pela chave da janela e traz de volta `comportamento`/`observacoes`/`video_tempo_ini`/`video_tempo_fim` do arquivo antigo — nunca apaga trabalho feito. Faz backup timestamped em `backups_comportamento/` antes de sobrescrever. Janela que não sobrevive no dataset mestre atual (deixou de ser robusta, ou pertencia a uma sessão reprocessada do zero, como o LAC renomeado) é descartada silenciosamente da nova lista.
 
 ### 14.2 `anotador_comportamento.py` — Aplicativo Gráfico de Anotação Sincronizada
 - **O que faz:** Interface gráfica interativa construída com **Tkinter + OpenCV + Pillow** para visualização do vídeo em sincronia com o LFP.
@@ -539,6 +549,7 @@ Para correlacionar os episódios de acoplamento detectados com o comportamento r
   - **Digitação Livre e Autocompletar:** Campo de texto com autocompletar de termos já utilizados e confirmação por `Enter`.
 - **Integridade de Codificação (`utf-8-sig`):**
   - O aplicativo grava o CSV utilizando UTF-8 com BOM (`utf-8-sig`), garantindo que acentos da língua portuguesa não sejam corrompidos ao abrir no Microsoft Excel no Windows.
+- **Sessão = (sessao, condicao), não só sessao (2026-09-14):** uma sessão de infusão tem 4 vídeos na mesma pasta (basal + 0h/1h/2h pós), cada um cobrindo um conjunto diferente de `.ns2` — ao contrário do basal, onde 1 `sessao` = 1 vídeo. O seletor de sessão agora lista pares `sessao :: condicao`; `config_anotador.json["sessoes"]` usa a chave composta só para condição ≠ basal (entradas antigas de basal continuam com a chave simples, sem precisar reconfigurar). O autodetect de vídeo (`_tentar_autodetectar_video`) desempata pela palavra-chave da condição no nome do arquivo (`"0h"`, `"1h"`, `"2h"`, `"basal"`), já que os 4 vídeos da rodada moram na mesma pasta e o achado por rato sozinho é ambíguo.
 
 ### 14.3 `junta_comportamento.py` — Mesclagem com o Dataset Mestre
 - **O que faz:** Combina as anotações feitas no `template_comportamento.csv` de volta ao dataset mestre de resultados (`resultados/dataset_mestre_final.csv`), propagando o comportamento anotado para todos os canais correspondentes àquela janela temporal. Salva em `resultados/dataset_mestre_COM_COMPORTAMENTO.csv`.
@@ -612,7 +623,7 @@ Antes da refatoração, `filtra_sinal`, `aplica_notch`, `_mi_de_bin_idx` e a ló
 Cadeia de consolidação do dataset mestre (antes disso não estava documentada em lugar nenhum):
 ```bash
 # 1. Constrói o dataset mestre bruto: merge de refinados.csv + skewness/comodulograma/harmônico(_hfo)
-#    por canal (renomeia veredito→veredito_refino, adiciona sessao/condicao/canal)
+#    por canal (renomeia veredito→veredito_refino, adiciona sessao/grupo/condicao/canal)
 python pipeline/dataset_mestre/agrega_resultados.py --resultados "<sessao>/RESULTADOS" --saida dataset_mestre.csv
 
 # 2. Enriquece: FOOOF v2 (aperiodic_mode='knee', ajuste particionado 2-45Hz teta / 35-250Hz gama)
@@ -620,6 +631,124 @@ python pipeline/dataset_mestre/agrega_resultados.py --resultados "<sessao>/RESUL
 python pipeline/dataset_mestre/enriquece_dataset_mestre.py --entrada dataset_mestre.csv --saida dataset_mestre_v2.csv
 ```
 As duas etapas do passo 2 (`--etapas fooof portao`, ambas por padrão) são independentes — `portao` só usa colunas que já vêm do passo 1, nenhuma delas é criada pelo `fooof`. Não-destrutivo por padrão; `--in_place` sobrescreve a entrada (comportamento do antigo `aplica_portao_banda_larga_mestre.py`). Guarda contra reenriquecer: se as 14 colunas FOOOF v2 já existirem, aborta com erro claro a menos que `--forca` seja passado (evita colunas `_x`/`_y` duplicadas silenciosas do `pandas.merge`).
+
+**Colunas de identificação (corrigidas em 2026-09-13).** `agrega_resultados.py` varre `--resultados` recursivamente e tira do caminho de cada pasta `chanN/`:
+- `sessao`: a primeira parte do caminho que contém `MTESC` (o nome com o prefixo do rato, ex. `MTESC05_LAC_Rodada-1-04-05-2024`); só cai para uma parte com `Rodada` se nenhuma tiver `MTESC`. Antes, o laço ficava com a **última** parte contendo "Rodada" — numa estrutura `MTESC05_LAC_Rodada-X/Rodada-X/chan5` a pasta interna vencia e o rato sumia do rótulo.
+- `grupo`: `NOCI`, `LAC` ou `VEH` (`grupo_farmacologico()`). O que foi infundido na sessão (`...-lac_hemdir` / `...-veh_hemesq` no nome da pasta) vence a pasta do rato — `MTESCnn_LAC` guarda sessões de lactato **e** de veículo, e antes toda sessão de veículo saía rotulada LAC. Sem esse token, procura `NOCI`, `VEH` ou `LAC` em qualquer parte do caminho (`indeterminado` se nenhuma).
+- `condicao`: `basal`, `0h_pos`, `1h_pos` ou `2h_pos`, pelo nome da pasta da condição de infusão. Antes, `condicao` guardava o grupo farmacológico (e na prática ficava sempre `basal`, porque o nome da sessão não contém "NOCI"/"LAC").
+
+Pastas cujo nome começa com `_` são **ignoradas** (desde 2026-09-14): `_CONTAMINADO_nao_usar/` (sessão antiga que processou arquivos de MTESC03_LAC e MTESC05_LAC juntos) e `_LAC_basal_antigo_nao_usar/` (saídas do basal LAC com os nomes antigos das pastas). É a convenção para isolar saída descartada sem apagar. Organização atual: basal em `basal/NOCI/`, `basal/LAC/` e `basal/VEH/` (nome `<pasta da sessão>_Basal antes da infusao`), infusão em `<RATO>_NOCI_<N>_<DATA>/<condição>/`.
+
+**Pastas LAC com o rato no nome (2026-09-14):** as sessões de `LAC_NOCI/MTESC03_LAC/` e `MTESC05_LAC/` tinham nomes idênticos entre os dois ratos (`Rodada-1-02-05-2024-lac_hemdir`...), e só a pasta-mãe as separava. Foram renomeadas para `MTESC03 -- Rodada-1-02-05-2024-lac_hemdir` (mesmo padrão `MTESCnn -- ...` do NOCI); o mapeamento antigo → novo está em `LAC_NOCI/_renomeacoes_pastas_LAC.csv`.
+
+**Lote do basal:** `RESULTADOS_MESTRADO/roda_lote_mtesc.ps1` acha sozinho toda pasta `LAC_NOCI/<rato>/<sessão>/Basal antes da infusao` (antes era uma lista fixa, com nomes LAC desatualizados e 3 entradas do MTESC05_LAC apontando para a rodada inteira em vez do basal). `-ratos "MTESC0?_LAC"` filtra, `-listar` só mostra pasta/grupo/saída sem rodar, `-sem_agregar` pula a agregação final. Pula (com aviso) sessão cujo nome não traga `MTESCnn`.
+
+**Template de comportamento:** `gerar_template_comportamento.py` lista toda janela do CSV que receber, sem filtrar veredito. Para anotar só o que importa, gere o template a partir de um CSV filtrado por `veredito_refino == "Candidato robusto"` — **não** pela cadeia completa do `consolida_vencedores.py`, cujo portão comportamental exige `comportamento` preenchido e descartaria exatamente as janelas ainda não anotadas. Foi esse filtro que gerou o template atual (reprodução janela a janela confirmada em 2026-09-13).
+
+---
+
+## 18. `processa_sessao.py` + `triagem_coocorrencia.py` — Orquestrador por sessão
+
+`processa_sessao.py` (raiz de `pipeline/`) é o que roda em lote: processa uma pasta de sessão (ou de condição de infusão) canal a canal.
+
+```bash
+python pipeline/processa_sessao.py --pasta "<pasta com .ns2>" --saida "<pasta base>" [--min_janelas 3]
+```
+Saída em `<saida>/<nome da pasta>/chanN/`, mais `resumo_canais.csv`. Rode de dentro de `SCRIPT/`: ele chama as etapas com caminhos relativos (`pipeline/...`).
+
+- **Estágio 0 — canais vivos:** lê os primeiros 30 s do primeiro `.ns2`, descarta canais com amplitude morta e sinaliza (sem descartar) outliers de RMS (`rms_outlier` no resumo).
+- **Estágio 1 — co-ocorrência (`triagem_coocorrencia.py`, o "Passo 0.5"):** para cada `.ns2`, gera `chanN/coocorrencia_<arq>.csv` com, por janela de 10 s / passo 5 s:
+  - `teta_ok` (de `teta_ok_por_janela`, do `triagem_pac.py`);
+  - `gamma_pot_rel` (30–80 Hz) e `hg_pot_rel` (80–150 Hz) — potência da banda sobre a média do PSD (Welch); `gamma_ok`/`hg_ok` = 1 quando passa de 1,5 × a mediana das janelas **do próprio arquivo** (limiar relativo, muda de arquivo pra arquivo);
+  - `hfo_cru` e `ripple` — detecção de eventos no sinal inteiro, em resolução de amostra (150–250 Hz, `exigir_sharp_wave=False`). O console mostra o "diagnóstico do paradoxo HFO" (taxa de HFO cru sem ripple; alerta acima de 95% ou abaixo de 5%).
+
+  O orquestrador soma as janelas `teta_ok & gamma_ok` e `teta_ok & hg_ok` entre os arquivos e **pula o canal** se as duas ficarem abaixo de `--min_janelas`. Teta + HFO e teta + ripple são registrados no resumo, mas **não entram no corte** — um canal só com teta + HFO é pulado, mesmo que o Estágio 2 rode o par `theta_hfo`.
+
+  CLI avulsa: `python pipeline/etapa1_triagem/triagem_coocorrencia.py --origem <arq.ns2|.mat> --canal <idx 0-based | var do .mat> [--saida ...] [--limiar_dp 4.0] [--duracao_ms 25.0]`.
+- **Estágio 2 — pipeline pesado:** `triagem_pac.py` (3 pares) → `refina_candidatos.py` → `comodulogram.py` (um por par) → `audita_skewness.py`, `audita_harmonico.py` (por par) e `audita_harmonico_hfo.py`.
+
+**Sessão com zero candidatos:** olhe o `resumo_canais.csv` antes de suspeitar de bug. Em 2026-09-13, MTESC03_LAC Rodada-1 e MTESC05_LAC Rodada-2-06 deram zero porque nenhum canal passou do Estágio 1 (teta + gama e teta + HG ≤ 2 janelas em todos os canais), apesar de teta + HFO alto — comportamento esperado do corte, não falha.
+
+---
+
+## 19. `pac_studio/` — API de 1 linha *(novo 2026-09-13)*
+
+Consolida sequências que existiam copiadas à mão em vários scripts, sem reimplementar nenhum cálculo (só orquestra `pac_core` e a config de bandas `BAND_PAIRS` de `triagem_pac.py`).
+
+- **`analisa_janela(caminho, canal, t_ini_s, t_fim_s, par="theta_gamma", ...)`** — carrega → fatia → notch → filtra fase/amplitude → Hilbert → MI com surrogates, numa chamada. Devolve `mi_observado`, `z_score`, `p_empirico` e as bandas usadas; não decide "significativo". `rng=42` por padrão (convenção do projeto). `canal` aceita nome nativo (`chan5`) ou índice 1-based do dataset mestre.
+- **`transicao_estado(df_mestre, gap_max_s=None)`** — reconstrói os pares consecutivos comportamento(N-1) → janela N com a mesma chave de agrupamento (`sessao, arquivo, canal, par`) e o mesmo `GAP_MAX_S` (15 s) de `preditor/preditor_estado_comportamental.py::monta_dataset()`, importado de lá. A análise χ² da Hipótese H2 não existia como código em nenhum script (só os números, nos docs e em `gerar_figuras_dissertacao.py`, digitados à mão); com `pd.crosstab` + `chi2_contingency` sobre o retorno desta função, reproduz n = 2715, χ² = 41,26, p = 2,57×10⁻⁷ e os percentuais por categoria da figura 2 da dissertação.
+
+**Teste:** `tests/test_pac_studio.py` — par inválido levanta erro; paridade bit a bit de `analisa_janela` contra a mesma sequência chamada à mão via `pac_core`; contraste acoplado × não acoplado em sinal sintético; reprodução exata de H2 contra `dataset_mestre_COM_COMPORTAMENTO.csv`.
+
+---
+
+## 20. `dashboard_desktop/` — Programa desktop ThetaGamma-Studio *(novo 2026-09-14)*
+
+Interface gráfica (Tkinter + ttkbootstrap, tema `bootstrap-light`) para rodar o pipeline e inspecionar resultados. Substituiu um protótipo em Streamlit (removido). Rodar com `python dashboard_desktop/app.py`; guia de uso em `docs/manual_usuario.md`.
+
+| Arquivo | Papel |
+|---|---|
+| `app.py` | Monta as 3 seções (Pipeline, Análise de Dados, Anotador de Vídeo); ao fechar com etapa rodando, pergunta e encerra os processos (evita órfãos). |
+| `runner.py` | `PainelExecucao`: roda um script via `subprocess` com stdout ao vivo num painel de log. Força `PYTHONUNBUFFERED=1` e `PYTHONIOENCODING=utf-8` (herdados pelos processos que `processa_sessao.py` dispara), senão o log chegaria em blocos e `print` de θ/× poderia quebrar em cp1252. **Parar** usa `taskkill /T` no Windows para derrubar a árvore inteira — `terminate()` só mataria o `processa_sessao.py` e deixaria o neto rodando órfão. Também tem `_rodar_em_thread` (função Python in-process em thread, usado pelas abas de análise). |
+| `aba_pipeline.py` | 6 sub-abas que montam a linha de comando de scripts existentes: Sessão Completa (`processa_sessao.py`), Triagem (`triagem_pac.py`, com botão Demo), Refinamento e Filtros (`refina_candidatos.py` + gráfico de vereditos ao terminar), Comodulograma (lote), Auditorias (skewness / harmônico / harmônico HFO) e Agregação (agrega → enriquece → junta comportamento → consolida). Campos = flags argparse reais. `audita_transientes.py` e `audita_footprint.py` ficam fora de propósito (CLI presa a uma sessão, casos passados como texto). Saídas padrão da Agregação em `*_novo.csv`; toda etapa confirma antes de sobrescrever. |
+| `aba_analise.py` | Inspeção de resultados em 6 sub-abas: canais (LFP multicanal com notch/passa-faixa/detrend/referência), comodulograma de uma janela (`calcula_comodulograma_z`), portões de qualidade (lê vereditos já computados; skewness reprova com `SUSPECT (Asymmetric)`), galeria dos 190 vencedores, comportamento (boxplot por categoria, χ² N-1→N, painel farmacológico) e replay do preditor (reusa `prever_pac_tempo_real.py`; aviso fixo de protótipo não validado para hardware). |
+| `aba_anotador.py` | Abre `pipeline/comportamento/anotador_comportamento.py` como processo separado e mostra o progresso de anotação por sessão lendo o template. |
+| `estilo.py` | Tema e helpers de layout (`_secao`, `_callout`, `_entrada_arquivo`, `_embute_figura`). Cores do callout vêm do tema ativo, não de hex fixo. |
+
+Nenhuma métrica é recalculada com lógica nova: tudo passa por `pac_core`, `pac_studio`, `preditor` ou pelos próprios scripts de `pipeline/`.
+
+---
+
+## 21. `preditor/` — Previsão de PAC para closed-loop *(protótipo)*
+
+> ⚠️ `preditor/README_preditor.md` (13/09/2026): **protótipo não validado — não usar para disparar hardware.** Detalhes, histórico e resultados completos estão lá; aqui fica só o papel de cada script. Nenhum recebe argumentos, exceto `prever_pac_tempo_real.py`.
+
+| Script | O que faz | Status |
+|---|---|---|
+| `preditor_estado_comportamental.py` | Prevê se a janela N vira "Candidato robusto" a partir do comportamento e da potência teta da janela N-1 (sem vazamento). Ablation de 4 melhorias, `StratifiedKFold` de 5, limiar calibrado por precisão-recall. Lê `dataset_mestre_COM_COMPORTAMENTO.csv` + `.ns2`; grava `resultados/_preditor_estado_teta.csv` e `modelo_estado_comportamental.pkl`. `pac_studio` importa `GAP_MAX_S` daqui. | Melhor linha até agora: AUC-ROC 0,618. Protótipo. |
+| `prever_pac_tempo_real.py` | Inferência em replay (`--ns2 <arq> --canal chan16 --replay`) ou streaming sintético (`--simular`): janela de 10 s, passo de 1 s, chama `dispara_ttl()` quando P ≥ limiar (padrão: `limiar_f1` do `.pkl`, 0,431). O comportamento do replay é **um valor fixo de CLI** (`--comportamento`) para todas as janelas. `dispara_ttl()` só imprime — é o ponto de ligar hardware (ver `docs/hardware_closed_loop.md`). Se não achar o `.pkl` novo, cai no `modelo_pac.pkl` antigo. Usado pela aba de replay do programa desktop. | O docstring fala em "modelo validado"; o README do preditor diz o contrário. Vale o README. |
+| `validar_preditor.py` | Validação com **controles reais** (janelas do mesmo `.ns2`, longe do evento), LOOCV, 8 variáveis (5 espectrais + MI_z, MVL_z no par oficial + `Footprint_n_z3`). Lê `candidatos_vencedores_OURO_PURIFICADO_v2.csv` (cada `.ns2` via `localiza_ns2`). Grava as probabilidades LOOCV em `resultados/_oof_lfp_10s.csv` (curva ROC real da figura 1). **Sobrescreve** `modelo_pac.pkl`. | Acurácia ≈ 0,43 (chance): nenhum precursor no LFP bruto. |
+| `analisar_janelas_ultracurtas.py` | Procura precursores ultracurtos (1–3 s antes) e detecção pelo início do evento nos 190 vencedores vs. controles; BH-FDR + classificadores, semente 42. Grava `resultados/_oof_lfp_ultracurto.csv` (probabilidades fora-da-amostra por cenário) e `resultados/_trajetoria_teta_pre_evento.csv` (teta a -3/-2/-1 s, figuras 1 e 4). | Exploratório (o código diz: p bruto < 0,05 não é confirmatório). |
+| `analisar_pre_evento.py` | "Versão 3" do extrator dos 10 s antes de cada vencedor; procura `**/RESULTADOS/vencedores.csv` e grava em `ANALISE_PRE_EVENTO/`. | Schema legado; só alimenta `treinar_preditor.py`. |
+| `treinar_preditor.py` | RandomForest com 5 variáveis espectrais, negativos = surrogates com fase embaralhada. Grava `modelo_pac.pkl`. | Legado e otimista (surrogates como negativo). |
+| `gerar_figuras_dissertacao.py` | Gera 4 PNGs em `docs/figuras/` (`--saida_dir`) **só a partir de dados reais** (reescrito em 2026-09-14; antes as figuras 1 e 3 eram curvas simuladas com `rng.normal` e a 2 e a 4 tinham valores digitados à mão). Fig. 1: ROC fora-da-amostra do modelo de estado + LFP 10 s (`_oof_lfp_10s.csv`) + ultracurto (`_oof_lfp_ultracurto.csv`, `--cenario_ultracurto`). Fig. 2: taxa de acoplamento em N por comportamento em N-1, via `pac_studio.transicao_estado` + χ². Fig. 3: precisão-recall do modelo de estado, limiar ótimo por F1 e prevalência reais. Fig. 4: medianas da teta a -3/-2/-1 s (evento × controle) + Wilcoxon nas inclinações (`_trajetoria_teta_pre_evento.csv`). | Figura que depende de um CSV ausente é **pulada** com aviso (rode `validar_preditor.py` / `analisar_janelas_ultracurtas.py` antes); `--permitir_parcial` desenha a fig. 1 só com as curvas disponíveis. |
+
+---
+
+## 22. Scripts auxiliares (fora do fluxo automático)
+
+Nenhum destes é chamado pelo `processa_sessao.py`.
+
+| Script | O que faz | Observação |
+|---|---|---|
+| `pac_core/workspace.py` | Fonte única dos caminhos-base (`BASE_WORKSPACE`, `BASE_LAC_NOCI`, `BASE_RESULTADOS_MESTRADO`, `BASE_SCRIPT`, `BASE_RESULTADOS` = `SCRIPT/resultados`, `BASE_FIGURAS` = `SCRIPT/figuras`); o workspace é a pasta-mãe de `SCRIPT/`, sobrescrevível pela variável `ACOPLAMENTO_BASE`. `figuras(*subpastas)` cria e devolve uma subpasta de `SCRIPT/figuras/` (destino padrão dos PNGs de diagnóstico). `localiza_ns2(arquivo, dica=None)` acha um `.ns2` pelo nome em qualquer pasta de `LAC_NOCI/` (basal ou pós-infusão), desempata pelo rato (`MTESCnn` da `dica`, normalmente a coluna `sessao`) e levanta `ValueError` se continuar ambíguo — substitui os 5 resolvedores copiados que existiam no preditor/consolida e perdiam em silêncio os 30 vencedores LAC. Sem CLI. | Nunca escrever `C:\`/`D:\` direto num script novo — importar daqui. |
+| `auditorias/linha_noise_kuhn.py` | Limpa ruído de linha (60 Hz e harmônicos) do PSD antes do FOOOF, no estilo de Kuhn et al. 2026: `remove_pico_gaussiana` (subtrai só a gaussiana do pico, em log10) e `remove_faixa_1f` (cópia fiel do `rem_noise.m`: troca ±2 Hz pela curva 1/f). `aplica_modo`: `gaussiana`, `cirurgica` (só 60 Hz) ou `hibrido`. Importado por `utils_harmonico.py`, `audita_harmonico.py` (`--modo_preprocesso`, padrão `hibrido`) e `comodulogram_interativo.py`. | Só para ruído de linha — nunca para tirar harmônico de teta (tornaria o `audita_harmonico.py` circular). O dicionário `MODOS` aplica 4 harmônicos (60–240 Hz); o docstring fala em 3. Regressão: `tests/test_fooof_linha_preprocess.py`. |
+| `etapa1_triagem/preprocessa_referencia_diferencial.py` | Referência diferencial automática sem mapa anatômico: escolhe N canais "silenciosos" (`seleciona_pool_referencia`), tira a média (`constroi_referencia`) e subtrai (`aplica_referencia_diferencial`). | `deteccao_ripple.py` chama a subtração sempre, mas com `sinal_referencia=None` — e nenhum código de produção passa referência. **Na prática não é aplicada.** Experimental; só `tests/test_referencia_diferencial.py` usa o pool. |
+| `etapa1_triagem/inspeciona_evento.py` | Figura de 3 painéis (bruto, banda de ripple 150–250 Hz, sharp-wave < 30 Hz) do primeiro candidato a ripple. `--arquivo --canal --limiar_dp --duracao_min_ms --saida_dir`; sem argumentos reproduz o caso original (MTESC04 sessão 1, arquivo 002, `chan1`, 3 DP, 15 ms). Grava em `SCRIPT/figuras/inspecao_ripple/`. | Diagnóstico avulso, citado no README para validar candidatos de 15–20 ms. |
+| `etapa5_exploracao/exploracao_minuto.py` | Linha do tempo minuto a minuto: PSD com bandas, MI z dos 3 pares (passo 5 s, **100** surrogates), potência teta e `ratio_hfo_gamma`. `--pasta_ns2 <pasta> [--canal chan20] [--saida_dir ...] [--top_n 5]` (`--top_n 0` usa o canal fixo). | Supõe 5 min por `.ns2`. Exploração pontual. |
+| `utilitarios/extrair_picos.py` | Reverifica o pico de cada vencedor: refaz o comodulograma (notch 60 Hz, 200 surrogates, semente 42) e só aceita o pico se a célula passar no BH-FDR do mapa inteiro, buscando dentro da banda (4–8 × 30–80 Hz). Compara pico antigo × novo. Corrige o argmax cru do antigo `atualizar_picos.py`. Aceita o schema atual (`janela_ini_s`/`janela_fim_s`) e o legado (`inicio_s`/`fim_s`); `--pasta_ns2` é opcional (sem ela, cada `.ns2` é achado por `localiza_ns2`). | Roda direto no `OURO_PURIFICADO_v2`. Custo: 1 comodulograma completo com 200 surrogates por linha. |
+| `utilitarios/gera_plot_fooof.py` | Figura de 3 painéis: espectro bruto × ajuste FOOOF v2 (knee, teta e gama separados). `--arquivo --canal --ini --fim --ctx_s --saida`; sem argumentos reproduz o caso original (MTESC04 s1, 003, `chan10`, 40–50 s). Grava em `SCRIPT/figuras/fooof/`. "Knee válido" é calculado (`_knee_valido`), não mais texto fixo; eixo Y sai dos dados. Limpa o ruído de rede no PSD antes do FOOOF com `linha_noise_kuhn.aplica_modo` (`--modo_linha`, padrão `hibrido`, o mesmo de `audita_harmonico.py`: só repõe ±2 Hz em 60/120/180/240 Hz pela 1/f local, e só se o pico for estreito, 0,5–2 Hz — gama largo perto de um harmônico sobrevive). Faixas tratadas aparecem hachuradas; PSD cru em cinza no painel A; pico a ≤ 3 Hz de um harmônico sai em cinza "rede? conferir", não como gama. | Figura de apresentação. Antes da limpeza, o caso padrão marcava o harmônico de 120 Hz como pico gama (119,7 Hz). `--modo_linha nenhum` reproduz a figura antiga. |
+| `utilitarios/gerar_relatorio_pdf.py` | PDF (reportlab) com tabela por comportamento, tabela de todos os vencedores (ordem de Z) e uma página por vencedor com o comodulograma (coluna `png`, localizado sob `RESULTADOS_MESTRADO`). `--csv` (padrão `resultados/candidatos_vencedores_OURO_PURIFICADO_v2.csv`), `--saida`, `--pasta_figuras`. Título, data, ratos e condições saem do CSV. | Reescrito para o schema atual em 2026-09-14 (o antigo esperava `z`/`pico`/`classificacao`/`figura`). |
+| `utilitarios/plot_basal_results.py` | 4 PNGs descritivos do dataset mestre (contagem por canal/par, boxplot de z por canal, z × MVL, curtose). `--csv` (padrão `resultados/dataset_mestre_final.csv`), `--condicao` (padrão `basal`; `''` = todas), `--saida_dir` (padrão `SCRIPT/figuras/dataset_mestre/<condicao>/`). | — |
+
+---
+
+## 23. `tests/`
+
+Todos são scripts standalone: rode `python tests/<arquivo>.py`. **Rodar `pytest` não testa nada** — só `test_synthetic_harmonico.py` tem uma função `test_*`, e ela não tem `assert`.
+
+| Arquivo | O que verifica | Dados |
+|---|---|---|
+| `test_pac_metrics_parity.py` | Paridade bit a bit de `pac_core.pac_metrics` contra cópias congeladas das implementações legadas + valores literais pré-migração. **Gate de qualquer mudança no núcleo.** Sai com código 1 se falhar. | Sintéticos |
+| `test_pac_studio.py` | `pac_studio`: paridade bit a bit com `pac_core`, contraste em sinal sintético e reprodução exata de H2 (n = 2715, χ² = 41,26). Sai com código 1 se falhar. | Sintéticos + dataset mestre real |
+| `test_synthetic_harmonico.py` | Lógica razão harmônica + PLV do `audita_harmonico` em cenários sintéticos (harmônico puro, acoplamento genuíno, coincidência próxima, fundo aperiódico). Pula de propósito o filtro de erro do FOOOF. | Sintéticos; só imprime |
+| `test_fooof_pico_budget.py` | Quanto o erro do FOOOF e a detecção do pico de teta mudam com `max_n_peaks` = 1, 2, 4. | Sintéticos; benchmark impresso |
+| `test_fooof_linha_preprocess.py` | Regressão do `linha_noise_kuhn.aplica_modo` (spike de 50/60 Hz + artefato motor); esperado: erro do cenário D de 0,265 para < 0,15. | Sintéticos; só imprime |
+| `test_falso_positivo_hfo.py` | Monte Carlo (100 mil sorteios, semente 42) da taxa de falso positivo de razão harmônica teta 8 Hz × HFO 150–250 Hz — origem dos ~31% citados no README. | Sintéticos |
+| `smoke_comod_interativo.py` | Teste rápido do `comodulogram_interativo` com 30 s sintéticos (teta 8 Hz modulando gama 60 Hz); gera os PNGs numa pasta temporária. O docstring promete checar z > 3, mas só imprime. | Sintéticos |
+| `test_integracao_pipeline.py` | Roda `processa_sessao.py --min_janelas 1000` na sessão 1 real do MTESC04 — o limiar impossível executa só os Estágios 0 e 1. | **Dados reais** (sai com erro se a pasta não existir) |
+| `test_referencia_diferencial.py` | Ripples com e sem referência diferencial (pool de 4/8/16 canais + leave-one-out) nos `.ns2` 002 e 003 do MTESC04 sessão 1 (`--arquivos` troca). Grava os plots em `SCRIPT/figuras/referencia_diferencial/` (`--saida_dir`). | **Dados reais**; experimental |
+| `sweep_ripple.py` | Varre duração (12–20 ms) × limiar (3,0–4,0 DP) chamando `triagem_coocorrencia.py` nos 3 `.ns2` do MTESC04 sessão 1. Roda no nível do módulo (sem `__main__`); escreve `tmp_triagem_fina.csv` na pasta atual. | **Dados reais** |
 
 ---
 

@@ -11,8 +11,9 @@ def main():
     print("TESTE DE INTEGRAÇÃO DO ORQUESTRADOR")
     print("=" * 85)
 
-    # Vamos rodar o orquestrador em uma sessão de teste real.
-    pasta_teste = os.path.join(BASE_LAC_NOCI, "MTESC04_NOCI", "MTESC04 -- 1 - infusao - 08-07-2024", "Basal antes da infusao")
+    # Vamos rodar o orquestrador em uma sessão de teste real (1o argumento opcional troca a pasta).
+    pasta_teste = sys.argv[1] if len(sys.argv) > 1 else os.path.join(
+        BASE_LAC_NOCI, "MTESC04_NOCI", "MTESC04 -- 1 - infusao - 08-07-2024", "Basal antes da infusao")
     pasta_saida = os.path.join(BASE_SCRIPT, "TESTE_INTEGRACAO_OUT")
     
     if not os.path.exists(pasta_teste):
@@ -21,7 +22,7 @@ def main():
         sys.exit(1)
         
     cmd = [
-        "python", "pipeline/processa_sessao.py",
+        sys.executable, os.path.join(BASE_SCRIPT, "pipeline", "processa_sessao.py"),
         "--pasta", pasta_teste,
         "--saida", pasta_saida,
         "--min_janelas", "1000"  # Colocamos um limiar impossível para que o Estágio 2 não rode em todos os 32 canais e demore 5 horas.

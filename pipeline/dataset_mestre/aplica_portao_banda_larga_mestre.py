@@ -19,9 +19,9 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from pipeline.dataset_mestre.enriquece_dataset_mestre import etapa_portao
-from pac_core.workspace import BASE_WORKSPACE
+from pac_core.workspace import BASE_RESULTADOS
 
-CSV_PADRAO = os.path.join(BASE_WORKSPACE, "dataset_mestre_final_v2.csv")
+CSV_PADRAO = os.path.join(BASE_RESULTADOS, "dataset_mestre_final_v2.csv")
 
 
 def main(caminho_csv=CSV_PADRAO):

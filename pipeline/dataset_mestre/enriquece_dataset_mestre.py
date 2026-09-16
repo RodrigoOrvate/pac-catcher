@@ -35,7 +35,7 @@ Uso:
     # Só recalcula FOOOF v2 (aborta se as colunas já existirem, a menos
     # que --forca seja passado)
     python enriquece_dataset_mestre.py --entrada dataset_mestre.csv \\
-        --etapas fooof --pasta_dados C:\\acoplamento_theta-gamma\\LAC_NOCI \\
+        --etapas fooof --pasta_dados <workspace>\\LAC_NOCI \\
         --saida dataset_mestre_v2.csv
 """
 

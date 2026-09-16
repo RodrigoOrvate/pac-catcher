@@ -84,4 +84,4 @@ Conceitualmente e estatisticamente, o núcleo desta fase está completo, validad
 
 ### Formato Híbrido (O Padrão Ouro de Engenharia):
 - **Camada de Base (Backend):** O núcleo dos algoritmos consolidado como biblioteca modular e testável em Python (`pac_core` e `pipeline`).
-- **Camada de Apresentação (Frontend / Dashboard):** Interface visual moderna e interativa (Web / Streamlit) para exploração interativa de sessões, comodulogramas, cruzamentos comportamentais e simulação do laço fechado com disparo TTL em tempo real, acompanhada de geração automatizada de relatórios.
+- **Camada de Apresentação (Frontend):** programa desktop local ThetaGamma-Studio (`dashboard_desktop/`, Tkinter + ttkbootstrap) que roda as etapas do pipeline (triagem, refinamento, comodulograma, auditorias, agregação) com log ao vivo e reúne a exploração de sessões, comodulogramas, cruzamentos comportamentais, anotador de vídeo e simulação do laço fechado com disparo TTL; relatórios gerados por `pipeline/utilitarios/gerar_relatorio_pdf.py`.

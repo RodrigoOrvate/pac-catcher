@@ -1,3 +1,11 @@
+"""
+test_referencia_diferencial.py -- conta ripples com/sem referência
+diferencial (pools 4/8/16 + leave-one-out) e plota o 1o candidato de cada.
+
+    python tests/test_referencia_diferencial.py
+    python tests/test_referencia_diferencial.py --arquivos a.ns2 b.ns2 --saida_dir figuras/x
+"""
+import argparse
 import sys
 import os
 import numpy as np
@@ -7,7 +15,7 @@ from scipy.signal import butter, filtfilt
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from pac_core.io import carrega_dados
-from pac_core.workspace import BASE_LAC_NOCI
+from pac_core import workspace
 from pipeline.etapa1_triagem.preprocessa_referencia_diferencial import seleciona_pool_referencia, constroi_referencia
 from pipeline.etapa1_triagem.deteccao_ripple import detecta_eventos_ripple
 
@@ -19,7 +27,7 @@ def butter_bandpass_filter(data, lowcut, highcut, fs, order=5):
     y = filtfilt(b, a, data)
     return y
 
-def inspeciona_candidato(sinal_bruto, fs, candidato, plot_name):
+def inspeciona_candidato(sinal_bruto, fs, candidato, plot_name, saida_dir):
     ini_s = candidato['inicio_s']
     fim_s = candidato['fim_s']
     pico_s = (ini_s + fim_s) / 2.0
@@ -60,7 +68,7 @@ def inspeciona_candidato(sinal_bruto, fs, candidato, plot_name):
     
     plt.tight_layout()
     
-    out_path = os.path.join(r"C:\Users\rodri\.gemini\antigravity-ide\brain\4887ffb1-11dd-4c40-9405-5bdadf2068d3", plot_name)
+    out_path = os.path.join(saida_dir, plot_name)
     plt.savefig(out_path)
     plt.close()
 
@@ -88,7 +96,9 @@ def detecta_flags_simples(dados, fs):
         
     return flags
 
-def roda_testes_diferencial_loo(arquivo, limiar_dp=3.0, duracao_ms=15.0):
+def roda_testes_diferencial_loo(arquivo, limiar_dp=3.0, duracao_ms=15.0, saida_dir=None):
+    saida_dir = saida_dir or workspace.figuras("referencia_diferencial")
+    os.makedirs(saida_dir, exist_ok=True)
     print(f"\n======================================")
     print(f"Carregando {os.path.basename(arquivo)}...")
     dados, fs, canais = carrega_dados(arquivo)
@@ -111,7 +121,7 @@ def roda_testes_diferencial_loo(arquivo, limiar_dp=3.0, duracao_ms=15.0):
         print(f"[Diferencial Completo Pool={tamanho}]: {cont} ripples (Pool: {pool})")
         
         if cont > 0:
-            inspeciona_candidato(sinal_alvo - sinal_ref, fs, df_dif[0], f"cand_pool{tamanho}_{os.path.basename(arquivo)}.png")
+            inspeciona_candidato(sinal_alvo - sinal_ref, fs, df_dif[0], f"cand_pool{tamanho}_{os.path.basename(arquivo)}.png", saida_dir)
             
         print("  Rodando Leave-One-Out (removendo 1 por vez):")
         for p in pool:
@@ -121,10 +131,17 @@ def roda_testes_diferencial_loo(arquivo, limiar_dp=3.0, duracao_ms=15.0):
             cont_loo = len(df_loo) if df_loo else 0
             print(f"  [-{p}]: {cont_loo} ripples")
             if cont_loo > 0:
-                inspeciona_candidato(sinal_alvo - sinal_ref_loo, fs, df_loo[0], f"cand_pool{tamanho}_sem_{p}_{os.path.basename(arquivo)}.png")
+                inspeciona_candidato(sinal_alvo - sinal_ref_loo, fs, df_loo[0], f"cand_pool{tamanho}_sem_{p}_{os.path.basename(arquivo)}.png", saida_dir)
 
 if __name__ == "__main__":
-    base_dir = os.path.join(BASE_LAC_NOCI, "MTESC04_NOCI", "MTESC04 -- 1 - infusao - 08-07-2024", "Basal antes da infusao")
-    
-    roda_testes_diferencial_loo(os.path.join(base_dir, "20240708-123605-002.ns2"), limiar_dp=3.0, duracao_ms=15.0)
-    roda_testes_diferencial_loo(os.path.join(base_dir, "20240708-123605-003.ns2"), limiar_dp=3.0, duracao_ms=15.0)
+    base_dir = os.path.join(workspace.BASE_LAC_NOCI, "MTESC04_NOCI", "MTESC04 -- 1 - infusao - 08-07-2024", "Basal antes da infusao")
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--arquivos", nargs="+",
+                    default=[os.path.join(base_dir, f) for f in ("20240708-123605-002.ns2", "20240708-123605-003.ns2")])
+    ap.add_argument("--limiar_dp", type=float, default=3.0)
+    ap.add_argument("--duracao_ms", type=float, default=15.0)
+    ap.add_argument("--saida_dir", default=None, help="default: SCRIPT/figuras/referencia_diferencial")
+    a = ap.parse_args()
+    for arq in a.arquivos:
+        roda_testes_diferencial_loo(arq, limiar_dp=a.limiar_dp, duracao_ms=a.duracao_ms, saida_dir=a.saida_dir)

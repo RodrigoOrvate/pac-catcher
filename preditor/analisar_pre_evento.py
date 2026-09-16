@@ -13,7 +13,7 @@ import sys
 # Adicionar pasta pipeline ao path para importar ns2_utils (SCRIPT/preditor/ -> SCRIPT/pipeline/)
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from pac_core.io import carrega_dados
-from pac_core.workspace import BASE_WORKSPACE
+from pac_core.workspace import BASE_WORKSPACE, localiza_ns2
 
 PRE_WINDOW = 10
 
@@ -86,9 +86,9 @@ def process_session_vencedores():
             inicio = float(row['inicio_s'])
             filename = row['arquivo']
 
-            ns2_path = os.path.join(sessao_dir, "Basal antes da infusao", filename)
-            if not os.path.exists(ns2_path):
-                ns2_path = os.path.join(sessao_dir, filename)
+            # Acha o .ns2 pelo nome, qualquer que seja a pasta da condição
+            # (basal ou pós-infusão); cai pra pasta da sessão se não achar.
+            ns2_path = localiza_ns2(filename, dica=sessao_name) or os.path.join(sessao_dir, filename)
 
             print(f"  Processando {canal_name} @ {inicio}s...")
 

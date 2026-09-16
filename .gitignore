@@ -13,6 +13,7 @@ DADOS_EXEMPLO*/
 *.log
 
 # Cache de bytecode Python
+.pytest*
 __pycache__/
 
 # Checkpoints do Jupyter
